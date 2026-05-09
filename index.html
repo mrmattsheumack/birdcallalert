@@ -96,81 +96,57 @@ const SUPA_HEADERS = {
   "Authorization": "Bearer " + SUPA_KEY,
 };
 
-// ─── Filter presets ─────────────────────────────────────────────────
-const PRESETS = {
-  all: { label: "All species", icon: "🐦", species: null },
-  raptors: {
-    label: "Raptors only",
-    icon: "🦅",
-    species: new Set([
-      "Wedge-tailed Eagle_Aquila audax",
-      "White-bellied Sea-Eagle_Haliaeetus leucogaster",
-      "Whistling Kite_Haliastur sphenurus",
-      "Brown Goshawk_Accipiter fasciatus",
-      "Collared Sparrowhawk_Accipiter cirrocephalus",
-      "Swamp Harrier_Circus approximans",
-      "Brown Falcon_Falco berigora",
-      "Nankeen Kestrel_Falco cenchroides",
-      "Peregrine Falcon_Falco peregrinus",
-      "Powerful Owl_Ninox strenua",
-      "Southern Boobook_Ninox boobook",
-      "Tawny Frogmouth_Podargus strigoides",
-    ]),
-  },
-  woodland: {
-    label: "Woodland",
-    icon: "🌳",
-    species: new Set([
-      "Eastern Spinebill_Acanthorhynchus tenuirostris",
-      "New Holland Honeyeater_Phylidonyris novaehollandiae",
-      "White-naped Honeyeater_Melithreptus lunatus",
-      "Yellow-faced Honeyeater_Caligavis chrysops",
-      "Superb Fairywren_Malurus cyaneus",
-      "Brown Thornbill_Acanthiza pusilla",
-      "Striated Thornbill_Acanthiza lineata",
-      "Spotted Pardalote_Pardalotus punctatus",
-      "Grey Fantail_Rhipidura albiscapa",
-      "Eastern Yellow Robin_Eopsaltria australis",
-      "Golden Whistler_Pachycephala pectoralis",
-      "Rufous Whistler_Pachycephala rufiventris",
-      "Grey Shrike-thrush_Colluricincla harmonica",
-      "Laughing Kookaburra_Dacelo novaeguineae",
-      "Sacred Kingfisher_Todiramphus sanctus",
-      "Olive-backed Oriole_Oriolus sagittatus",
-      "Satin Bowerbird_Ptilonorhynchus violaceus",
-      "Pied Currawong_Strepera graculina",
-      "Grey Currawong_Strepera versicolor",
-      "Eastern Rosella_Platycercus eximius",
-      "Australian King-Parrot_Alisterus scapularis",
-    ]),
-  },
-  waterbirds: {
-    label: "Waterbirds",
-    icon: "🦆",
-    species: new Set([
-      "White-faced Heron_Egretta novaehollandiae",
-      "Australian Wood Duck_Chenonetta jubata",
-      "Pacific Black Duck_Anas superciliosa",
-    ]),
-  },
-};
-
-// Species worth firing a notification for. Subset of the full target list:
-// raptors plus a few uncommon/special visitors. Common honeyeaters and
-// parrots don't notify even if detected (you'd be pinged constantly).
-const NOTIFY_SPECIES = new Set([
-  ...PRESETS.raptors.species,
+// ─── Priority species ───────────────────────────────────────────────
+// Three-bucket species model:
+//   PRIORITY → in this set, gets star + (optionally) push notification
+//   ALL ELSE → not in this set; appears in feed but no notification
+//   EXCLUDED → handled Pi-side, never reaches the app
+//
+// This is the in-code source of truth. The Pi script's TARGET_SPECIES
+// should match this (but note: server-side filtering was relaxed in v2,
+// so the Pi now posts everything not in EXCLUDED_SPECIES, and we do the
+// priority/non-priority split here based on this set).
+const PRIORITY_SPECIES = new Set([
+  // Raptors & owls
+  "Wedge-tailed Eagle_Aquila audax",
+  "White-bellied Sea-Eagle_Haliaeetus leucogaster",
+  "Whistling Kite_Haliastur sphenurus",
+  "Brown Goshawk_Accipiter fasciatus",
+  "Collared Sparrowhawk_Accipiter cirrocephalus",
+  "Swamp Harrier_Circus approximans",
+  "Brown Falcon_Falco berigora",
+  "Nankeen Kestrel_Falco cenchroides",
+  "Peregrine Falcon_Falco peregrinus",
+  "Powerful Owl_Ninox strenua",
+  "Southern Boobook_Ninox boobook",
+  "Tawny Frogmouth_Podargus strigoides",
+  // Special cockatoos
   "Yellow-tailed Black-Cockatoo_Zanda funerea",
   "Gang-gang Cockatoo_Callocephalon fimbriatum",
+  // Other uncommon visitors worth knowing about
   "Satin Bowerbird_Ptilonorhynchus violaceus",
   "Sacred Kingfisher_Todiramphus sanctus",
   "Olive-backed Oriole_Oriolus sagittatus",
 ]);
 
+// View filter for the live feed.
+const VIEW_FILTERS = {
+  all:      { label: "All", icon: "🐦" },
+  priority: { label: "Priority only", icon: "⭐" },
+};
+
+// Notification mode: which detections fire a browser notification.
+const NOTIF_MODES = {
+  priority: { label: "Priority only", desc: "Only raptors + special visitors" },
+  all:      { label: "All detections",  desc: "Every new detection above threshold" },
+  off:      { label: "Off",             desc: "No browser notifications" },
+};
+
 // ─── localStorage keys ──────────────────────────────────────────────
 const LS = {
   muted:     "bca_muted",
-  preset:    "bca_preset",
+  filter:    "bca_filter",      // "all" | "priority"  (was "bca_preset")
+  notifMode: "bca_notif_mode",  // "priority" | "all" | "off"
   conf:      "bca_conf",
   lastNotif: "bca_last_notif_id",
 };
@@ -182,6 +158,38 @@ function birdLabel(d) {
   if (m.scientific_name) return `${d.species_guess}_${m.scientific_name}`;
   return d.species_guess || "Unknown";
 }
+
+// True if a detection should be flagged as priority. Priority is computed
+// client-side from PRIORITY_SPECIES rather than read from a server-set flag,
+// so changing the priority list is a one-side edit (this file only).
+function isPriority(d) {
+  return PRIORITY_SPECIES.has(birdLabel(d));
+}
+
+// Date-bucket label for the History page grouping.
+// Boundaries are based on local-time calendar dates (not strict 24h windows)
+// so "Today" means today's date, "Yesterday" means yesterday's date, etc.
+function historyBucket(ts) {
+  const then = new Date(ts);
+  const now = new Date();
+  const startOfDay = (d) => {
+    const x = new Date(d);
+    x.setHours(0, 0, 0, 0);
+    return x;
+  };
+  const today = startOfDay(now);
+  const yest = new Date(today);
+  yest.setDate(yest.getDate() - 1);
+  const weekAgo = new Date(today);
+  weekAgo.setDate(weekAgo.getDate() - 7);
+
+  const tDay = startOfDay(then);
+  if (tDay.getTime() === today.getTime()) return "Today";
+  if (tDay.getTime() === yest.getTime()) return "Yesterday";
+  if (tDay.getTime() >= weekAgo.getTime()) return "This week";
+  return "Older";
+}
+const HISTORY_BUCKET_ORDER = ["Today", "Yesterday", "This week", "Older"];
 
 function fmtAge(ts) {
   if (!ts) return "";
@@ -218,7 +226,8 @@ function lsSet(key, val) {
 }
 
 // ─── Settings sheet (modal) ─────────────────────────────────────────
-function SettingsSheet({ open, onClose, preset, setPreset, confThreshold, setConfThreshold,
+function SettingsSheet({ open, onClose, viewFilter, setViewFilter, notifMode, setNotifMode,
+                         confThreshold, setConfThreshold,
                          muted, setMuted, allSeenSpecies, notifPerm, requestNotif }) {
   if (!open) return null;
 
@@ -305,17 +314,17 @@ function SettingsSheet({ open, onClose, preset, setPreset, confThreshold, setCon
             </div>
           </section>
 
-          {/* Filter preset */}
+          {/* Filter (live view) */}
           <section style={{ marginBottom: 24 }}>
             <h2 style={{ fontSize: 12, fontWeight: 700, color: "var(--text-3)",
                 letterSpacing: 0.8, textTransform: "uppercase", marginBottom: 10 }}>
-              Filter
+              Show in feed
             </h2>
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-              {Object.entries(PRESETS).map(([key, p]) => {
-                const active = preset === key;
+              {Object.entries(VIEW_FILTERS).map(([key, p]) => {
+                const active = viewFilter === key;
                 return (
-                  <button key={key} onClick={() => setPreset(key)} style={{
+                  <button key={key} onClick={() => setViewFilter(key)} style={{
                     display: "flex", alignItems: "center", gap: 12,
                     padding: "14px 16px",
                     background: active ? "var(--primary)" : "var(--surface)",
@@ -327,6 +336,52 @@ function SettingsSheet({ open, onClose, preset, setPreset, confThreshold, setCon
                   }}>
                     <span style={{ fontSize: 20 }}>{p.icon}</span>
                     <span style={{ flex: 1 }}>{p.label}</span>
+                    {active && <span style={{ fontSize: 18 }}>✓</span>}
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+
+          {/* Notification mode */}
+          <section style={{ marginBottom: 24 }}>
+            <h2 style={{ fontSize: 12, fontWeight: 700, color: "var(--text-3)",
+                letterSpacing: 0.8, textTransform: "uppercase", marginBottom: 10 }}>
+              Push notifications
+            </h2>
+            {notifPerm !== "granted" && (
+              <div style={{ fontSize: 12, color: "var(--text-2)", marginBottom: 8,
+                  padding: "8px 10px", background: "var(--surface-2)",
+                  borderRadius: "var(--r-sm)" }}>
+                {notifPerm === "default" && "Enable browser alerts above to use these settings."}
+                {notifPerm === "denied" && "Browser notifications are blocked in your browser settings."}
+                {notifPerm === "unsupported" && "Notifications aren't supported on this device."}
+              </div>
+            )}
+            <div style={{ display: "flex", flexDirection: "column", gap: 6,
+                opacity: notifPerm === "granted" ? 1 : 0.5,
+                pointerEvents: notifPerm === "granted" ? "auto" : "none" }}>
+              {Object.entries(NOTIF_MODES).map(([key, m]) => {
+                const active = notifMode === key;
+                return (
+                  <button key={key} onClick={() => setNotifMode(key)} style={{
+                    display: "flex", alignItems: "center", gap: 12,
+                    padding: "14px 16px",
+                    background: active ? "var(--primary)" : "var(--surface)",
+                    color: active ? "#fff" : "var(--text)",
+                    border: "1px solid " + (active ? "var(--primary)" : "var(--border)"),
+                    borderRadius: "var(--r-md)",
+                    fontSize: 15, fontWeight: 500, cursor: "pointer",
+                    textAlign: "left", width: "100%",
+                  }}>
+                    <div style={{ flex: 1 }}>
+                      <div>{m.label}</div>
+                      <div style={{ fontSize: 12, fontWeight: 400,
+                          color: active ? "rgba(255,255,255,0.85)" : "var(--text-2)",
+                          marginTop: 2 }}>
+                        {m.desc}
+                      </div>
+                    </div>
                     {active && <span style={{ fontSize: 18 }}>✓</span>}
                   </button>
                 );
@@ -392,7 +447,7 @@ function SettingsSheet({ open, onClose, preset, setPreset, confThreshold, setCon
                         <div style={{ fontSize: 15, fontWeight: 500,
                             color: isMuted ? "var(--text-3)" : "var(--text)",
                             textDecoration: isMuted ? "line-through" : "none" }}>
-                          {NOTIFY_SPECIES.has(s.label) && !isMuted &&
+                          {PRIORITY_SPECIES.has(s.label) && !isMuted &&
                             <span style={{ marginRight: 6, color: "var(--accent)" }}>★</span>}
                           {s.common}
                         </div>
@@ -433,6 +488,123 @@ function SettingsSheet({ open, onClose, preset, setPreset, confThreshold, setCon
   );
 }
 
+// ─── Detection card ─────────────────────────────────────────────────
+// Single detection row, used in both the live feed and the history view.
+// `mode` is "live" or "history" - in live mode, the action button is X
+// (dismiss); in history it's an undo arrow (restore).
+function DetectionCard({ d, expanded, onToggle, onDismiss, onRestore, mode }) {
+  const label = birdLabel(d);
+  const meta = d.metadata || {};
+  const priority = PRIORITY_SPECIES.has(label);
+  const conf = Math.round((d.confidence || 0) * 100);
+
+  // Stop propagation so action button clicks don't toggle the card
+  function handleAction(e, fn) {
+    e.stopPropagation();
+    fn?.();
+  }
+
+  return (
+    <div onClick={onToggle}
+      style={{
+        background: "var(--surface)",
+        border: "1px solid " + (priority && mode === "live" ? "rgba(217, 119, 6, 0.35)" : "var(--border)"),
+        borderLeft: priority && mode === "live" ? "4px solid var(--accent)" : "1px solid var(--border)",
+        borderRadius: "var(--r-md)",
+        padding: "14px 16px",
+        cursor: "pointer",
+        boxShadow: "var(--shadow)",
+        opacity: mode === "history" ? 0.85 : 1,
+      }}>
+      <div style={{ display: "flex", alignItems: "flex-start",
+          justifyContent: "space-between", gap: 12 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 17, fontWeight: 600, color: "var(--text)",
+              lineHeight: 1.25 }}>
+            {priority && mode === "live" && (
+              <span style={{ color: "var(--accent)", marginRight: 6 }}>★</span>
+            )}
+            {d.species_guess}
+          </div>
+          {meta.scientific_name && (
+            <div style={{ fontSize: 13, color: "var(--text-2)",
+                fontStyle: "italic", marginTop: 3 }}>
+              {meta.scientific_name}
+            </div>
+          )}
+          <div style={{ fontSize: 13, color: "var(--text-2)", marginTop: 6 }}>
+            {fmtAge(d.created_at)}
+          </div>
+        </div>
+        <div style={{ display: "flex", flexDirection: "column",
+            alignItems: "flex-end", flexShrink: 0, gap: 6 }}>
+          <div style={{
+            fontSize: 18, fontWeight: 700,
+            color: conf >= 75 ? "var(--success)" :
+                   conf >= 50 ? "var(--primary)" : "var(--text-2)",
+          }}>{conf}%</div>
+          <div style={{ fontSize: 11, color: "var(--text-3)" }}>
+            confidence
+          </div>
+          {/* Action button (clear or restore). 32px touch target. */}
+          {mode === "live" && onDismiss && (
+            <button onClick={(e) => handleAction(e, onDismiss)} aria-label="Clear"
+              title="Clear detection"
+              style={{
+                marginTop: 4,
+                width: 32, height: 32, borderRadius: "50%", border: "none",
+                background: "transparent", color: "var(--text-3)",
+                fontSize: 16, cursor: "pointer", lineHeight: 1,
+                display: "flex", alignItems: "center", justifyContent: "center",
+                border: "1px solid var(--border)",
+              }}>×</button>
+          )}
+          {mode === "history" && onRestore && (
+            <button onClick={(e) => handleAction(e, onRestore)} aria-label="Restore"
+              title="Restore to live feed"
+              style={{
+                marginTop: 4,
+                padding: "4px 10px", borderRadius: 14, border: "none",
+                background: "var(--surface-2)", color: "var(--primary)",
+                fontSize: 11, fontWeight: 600, cursor: "pointer", lineHeight: 1,
+                display: "flex", alignItems: "center", gap: 4,
+                border: "1px solid var(--border)",
+              }}>↩ Restore</button>
+          )}
+        </div>
+      </div>
+
+      {expanded && (
+        <div style={{
+          marginTop: 12, paddingTop: 12,
+          borderTop: "1px solid var(--border)",
+          display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8,
+        }}>
+          {[
+            { l: "Detected", v: new Date(d.created_at).toLocaleString("en-AU", {
+                hour: "2-digit", minute: "2-digit",
+                day: "2-digit", month: "short" }) },
+            { l: "Confidence", v: `${conf}%` },
+            { l: "Detector", v: meta.detector || "birdnet" },
+            { l: "Window", v: meta.start_time_secs != null
+                ? `${meta.start_time_secs.toFixed(1)}–${(meta.end_time_secs || 0).toFixed(1)}s`
+                : "—" },
+          ].map(x => (
+            <div key={x.l} style={{ background: "var(--surface-2)",
+                borderRadius: "var(--r-sm)", padding: "8px 10px" }}>
+              <div style={{ fontSize: 10, color: "var(--text-3)",
+                  fontWeight: 600, letterSpacing: 0.5,
+                  textTransform: "uppercase", marginBottom: 2 }}>{x.l}</div>
+              <div style={{ fontSize: 13, color: "var(--text)",
+                  fontWeight: 500 }}>{x.v}</div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Main app ───────────────────────────────────────────────────────
 function App() {
   const [detections, setDetections] = useState([]);
@@ -443,7 +615,11 @@ function App() {
   const [expandedId, setExpandedId] = useState(null);
   const [now, setNow] = useState(Date.now());
 
-  const [preset, setPreset] = useState(() => lsGet(LS.preset, "all"));
+  // viewMode = "live" (default) | "history"
+  const [viewMode, setViewMode] = useState("live");
+
+  const [viewFilter, setViewFilter] = useState(() => lsGet(LS.filter, "all"));
+  const [notifMode, setNotifMode] = useState(() => lsGet(LS.notifMode, "priority"));
   const [confThreshold, setConfThreshold] = useState(() => parseFloat(lsGet(LS.conf, "0.40")));
   const [muted, setMuted] = useState(() => {
     try { return new Set(JSON.parse(localStorage.getItem(LS.muted) || "[]")); }
@@ -454,7 +630,8 @@ function App() {
   const lastNotifId = useRef(lsGet(LS.lastNotif, null));
 
   // Persist settings
-  useEffect(() => { lsSet(LS.preset, preset); }, [preset]);
+  useEffect(() => { lsSet(LS.filter, viewFilter); }, [viewFilter]);
+  useEffect(() => { lsSet(LS.notifMode, notifMode); }, [notifMode]);
   useEffect(() => { lsSet(LS.conf, String(confThreshold)); }, [confThreshold]);
   useEffect(() => {
     try { localStorage.setItem(LS.muted, JSON.stringify([...muted])); } catch (e) {}
@@ -483,33 +660,42 @@ function App() {
       setLastFetch(new Date());
       setError(null);
 
-      // Notification for newest interesting detection
-      if (data && data.length > 0 && notifPerm === "granted") {
-        const newest = data[0];
-        const label = birdLabel(newest);
-        const ageMin = (Date.now() - new Date(newest.created_at).getTime()) / 60000;
-        if (
-          newest.id !== lastNotifId.current &&
-          ageMin < 5 &&
-          NOTIFY_SPECIES.has(label) &&
-          !muted.has(label) &&
-          (newest.confidence || 0) >= confThreshold
-        ) {
-          try {
-            new Notification(`🐦 ${newest.species_guess}`, {
-              body: `Detected nearby · ${Math.round((newest.confidence || 0) * 100)}% confidence`,
-              tag: "bird-detection",
-            });
-            lastNotifId.current = newest.id;
-            lsSet(LS.lastNotif, newest.id);
-          } catch (e) {}
+      // Notification for newest detection, gated by notifMode
+      if (data && data.length > 0 && notifPerm === "granted" && notifMode !== "off") {
+        // Find the newest non-dismissed detection that we haven't already
+        // notified about. Iterating instead of taking data[0] handles the
+        // case where the newest item is dismissed or has been seen.
+        for (const newest of data) {
+          if (newest.dismissed) continue;
+          if (newest.id === lastNotifId.current) break; // we've already moved past this point
+          const label = birdLabel(newest);
+          const ageMin = (Date.now() - new Date(newest.created_at).getTime()) / 60000;
+          const passesMode =
+            notifMode === "all" ||
+            (notifMode === "priority" && PRIORITY_SPECIES.has(label));
+          if (
+            ageMin < 5 &&
+            passesMode &&
+            !muted.has(label) &&
+            (newest.confidence || 0) >= confThreshold
+          ) {
+            try {
+              new Notification(`🐦 ${newest.species_guess}`, {
+                body: `Detected nearby · ${Math.round((newest.confidence || 0) * 100)}% confidence`,
+                tag: "bird-detection",
+              });
+              lastNotifId.current = newest.id;
+              lsSet(LS.lastNotif, newest.id);
+            } catch (e) {}
+            break; // notify only the single newest qualifying detection
+          }
         }
       }
     } catch (e) {
       setError("Network error");
     }
     setLoading(false);
-  }, [notifPerm, muted, confThreshold]);
+  }, [notifPerm, muted, confThreshold, notifMode]);
 
   useEffect(() => {
     fetchDetections();
@@ -517,17 +703,51 @@ function App() {
     return () => clearInterval(iv);
   }, [fetchDetections]);
 
-  // Filter by preset, confidence, and mute list
-  const filtered = useMemo(() => {
-    const presetSpecies = PRESETS[preset]?.species;
-    return detections.filter(d => {
+  // Live-view list: not dismissed, passes confidence + mute, passes filter.
+  // Sorted with priority items first, then by recency within each group.
+  const liveItems = useMemo(() => {
+    const items = detections.filter(d => {
+      if (d.dismissed) return false;
       if ((d.confidence || 0) < confThreshold) return false;
       const label = birdLabel(d);
       if (muted.has(label)) return false;
-      if (presetSpecies && !presetSpecies.has(label)) return false;
+      if (viewFilter === "priority" && !PRIORITY_SPECIES.has(label)) return false;
       return true;
     });
-  }, [detections, preset, confThreshold, muted]);
+    // Stable sort: priority bucket first, then by created_at desc
+    items.sort((a, b) => {
+      const pa = isPriority(a) ? 0 : 1;
+      const pb = isPriority(b) ? 0 : 1;
+      if (pa !== pb) return pa - pb;
+      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+    });
+    return items;
+  }, [detections, viewFilter, confThreshold, muted]);
+
+  // History-view list: dismissed only, grouped by date bucket.
+  // Returns an array of { bucket, items } in the order Today/Yesterday/...
+  const historyGroups = useMemo(() => {
+    const dismissed = detections
+      .filter(d => d.dismissed)
+      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+    const byBucket = new Map();
+    for (const d of dismissed) {
+      const b = historyBucket(d.created_at);
+      if (!byBucket.has(b)) byBucket.set(b, []);
+      byBucket.get(b).push(d);
+    }
+    return HISTORY_BUCKET_ORDER
+      .filter(b => byBucket.has(b))
+      .map(b => ({ bucket: b, items: byBucket.get(b) }));
+  }, [detections]);
+
+  // Total count of items hidden by the current live filter (for the
+  // "X hidden by current filter" notice)
+  const hiddenByFilter = useMemo(() => {
+    if (viewMode !== "live") return 0;
+    const visibleNonDismissed = detections.filter(d => !d.dismissed).length;
+    return visibleNonDismissed - liveItems.length;
+  }, [detections, liveItems, viewMode]);
 
   // Species summary - one row per species, used both in feed grouping and
   // in the settings mute list.
@@ -547,6 +767,34 @@ function App() {
     }
     return [...m.values()].sort((a, b) => b.latestTs - a.latestTs);
   }, [detections]);
+
+  // Dismiss / un-dismiss a detection. Optimistically updates local state
+  // so the UI is instant, then PATCHes Supabase. If the PATCH fails we
+  // roll back.
+  const setDismissed = useCallback(async (id, dismissed) => {
+    // Optimistic update
+    setDetections(prev => prev.map(d => d.id === id ? { ...d, dismissed } : d));
+    try {
+      const r = await fetch(
+        `${SUPA_URL}/rest/v1/candidate_sightings?id=eq.${id}`,
+        {
+          method: "PATCH",
+          headers: { ...SUPA_HEADERS, "Prefer": "return=minimal" },
+          body: JSON.stringify({ dismissed }),
+        }
+      );
+      if (!r.ok) {
+        // Roll back on failure
+        setDetections(prev => prev.map(d => d.id === id ? { ...d, dismissed: !dismissed } : d));
+        setError(`Couldn't ${dismissed ? "clear" : "restore"} (${r.status})`);
+        setTimeout(() => setError(null), 3000);
+      }
+    } catch (e) {
+      setDetections(prev => prev.map(d => d.id === id ? { ...d, dismissed: !dismissed } : d));
+      setError("Network error");
+      setTimeout(() => setError(null), 3000);
+    }
+  }, []);
 
   async function requestNotif() {
     if (typeof Notification === "undefined") { setNotifPerm("unsupported"); return; }
@@ -605,6 +853,18 @@ function App() {
                 display: "flex", alignItems: "center", justifyContent: "center",
                 border: "1px solid var(--border)",
               }}>↻</button>
+            <button
+              onClick={() => setViewMode(viewMode === "history" ? "live" : "history")}
+              aria-label={viewMode === "history" ? "Back to live feed" : "Open history"}
+              title={viewMode === "history" ? "Back to live" : "History"}
+              style={{
+                width: 40, height: 40, borderRadius: "50%", border: "none",
+                background: viewMode === "history" ? "var(--primary)" : "var(--surface)",
+                color: viewMode === "history" ? "#fff" : "var(--text-2)",
+                fontSize: 18, cursor: "pointer",
+                display: "flex", alignItems: "center", justifyContent: "center",
+                border: "1px solid " + (viewMode === "history" ? "var(--primary)" : "var(--border)"),
+              }}>{viewMode === "history" ? "←" : "🗂"}</button>
             <button onClick={() => setSettingsOpen(true)} aria-label="Settings"
               style={{
                 width: 40, height: 40, borderRadius: "50%", border: "none",
@@ -616,147 +876,150 @@ function App() {
           </div>
         </div>
 
-        {/* Preset indicator chip - shows current filter at a glance */}
-        {(preset !== "all" || muted.size > 0 || confThreshold > 0.4) && (
+        {/* Status chip - reflects current filter / view */}
+        {viewMode === "live" && (viewFilter !== "all" || muted.size > 0 || confThreshold > 0.4 || notifMode !== "priority") && (
           <button onClick={() => setSettingsOpen(true)} style={{
             display: "inline-flex", alignItems: "center", gap: 6, marginTop: 10,
             padding: "5px 11px", background: "var(--surface)",
             border: "1px solid var(--border)", borderRadius: 999,
             fontSize: 12, color: "var(--text-2)", cursor: "pointer",
           }}>
-            <span>{PRESETS[preset]?.icon} {PRESETS[preset]?.label}</span>
+            <span>{VIEW_FILTERS[viewFilter]?.icon} {VIEW_FILTERS[viewFilter]?.label}</span>
             {confThreshold > 0.4 && <span>· {Math.round(confThreshold * 100)}%+</span>}
             {muted.size > 0 && <span>· {muted.size} muted</span>}
+            {notifMode !== "priority" && <span>· notif: {notifMode}</span>}
             <span style={{ color: "var(--text-3)", marginLeft: 2 }}>edit</span>
           </button>
         )}
+        {viewMode === "history" && (
+          <div style={{
+            display: "inline-flex", alignItems: "center", gap: 6, marginTop: 10,
+            padding: "5px 11px", background: "var(--surface-2)",
+            border: "1px solid var(--border)", borderRadius: 999,
+            fontSize: 12, color: "var(--text-2)",
+          }}>
+            <span>🗂 Cleared detections</span>
+          </div>
+        )}
       </header>
 
-      {/* Live feed */}
+      {/* Live feed or History view */}
       <main style={{ padding: "8px 14px 80px", maxWidth: 600, margin: "0 auto" }}>
 
-        {/* Empty state */}
-        {!loading && detections.length === 0 && !error && (
-          <div style={{
-            textAlign: "center", padding: "60px 20px",
-            color: "var(--text-2)",
-          }}>
-            <div style={{ fontSize: 56, marginBottom: 16, opacity: 0.4 }}>🎤</div>
-            <h2 style={{ fontSize: 18, fontWeight: 600, color: "var(--text)", marginBottom: 8 }}>
-              Listening for birds
-            </h2>
-            <p style={{ fontSize: 14, lineHeight: 1.5, maxWidth: 320, margin: "0 auto" }}>
-              Detections from your microphone will appear here. The Pi posts a new
-              entry whenever BirdNET hears one of your target species.
-            </p>
-          </div>
-        )}
-
-        {/* Filtered-out notice */}
-        {!loading && detections.length > 0 && filtered.length === 0 && (
-          <div style={{
-            textAlign: "center", padding: "40px 20px", color: "var(--text-2)",
-          }}>
-            <div style={{ fontSize: 36, marginBottom: 12, opacity: 0.4 }}>🔍</div>
-            <p style={{ fontSize: 15, marginBottom: 16 }}>
-              {detections.length} detection{detections.length === 1 ? "" : "s"} hidden by current filter.
-            </p>
-            <button onClick={() => setSettingsOpen(true)} style={{
-              padding: "10px 16px", background: "var(--primary)", color: "#fff",
-              border: "none", borderRadius: "var(--r-md)", fontSize: 14,
-              fontWeight: 600, cursor: "pointer",
-            }}>Adjust filter</button>
-          </div>
-        )}
-
-        {/* Detection list */}
-        {filtered.length > 0 && (
-          <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 8 }}>
-            {filtered.slice(0, 50).map(d => {
-              const label = birdLabel(d);
-              const isOpen = expandedId === d.id;
-              const meta = d.metadata || {};
-              const isStarred = NOTIFY_SPECIES.has(label);
-              const conf = Math.round((d.confidence || 0) * 100);
-              return (
-                <div key={d.id} onClick={() => setExpandedId(isOpen ? null : d.id)}
-                  style={{
-                    background: "var(--surface)",
-                    border: "1px solid " + (isStarred ? "rgba(217, 119, 6, 0.35)" : "var(--border)"),
-                    borderLeft: isStarred ? "4px solid var(--accent)" : "1px solid var(--border)",
-                    borderRadius: "var(--r-md)",
-                    padding: "14px 16px",
-                    cursor: "pointer",
-                    boxShadow: "var(--shadow)",
-                  }}>
-                  <div style={{ display: "flex", alignItems: "flex-start",
-                      justifyContent: "space-between", gap: 12 }}>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 17, fontWeight: 600, color: "var(--text)",
-                          lineHeight: 1.25 }}>
-                        {isStarred && <span style={{ color: "var(--accent)", marginRight: 6 }}>★</span>}
-                        {d.species_guess}
-                      </div>
-                      {meta.scientific_name && (
-                        <div style={{ fontSize: 13, color: "var(--text-2)",
-                            fontStyle: "italic", marginTop: 3 }}>
-                          {meta.scientific_name}
-                        </div>
-                      )}
-                      <div style={{ fontSize: 13, color: "var(--text-2)", marginTop: 6 }}>
-                        {fmtAge(d.created_at)}
-                      </div>
-                    </div>
-                    <div style={{ display: "flex", flexDirection: "column",
-                        alignItems: "flex-end", flexShrink: 0 }}>
-                      <div style={{
-                        fontSize: 18, fontWeight: 700,
-                        color: conf >= 75 ? "var(--success)" :
-                               conf >= 50 ? "var(--primary)" : "var(--text-2)",
-                      }}>{conf}%</div>
-                      <div style={{ fontSize: 11, color: "var(--text-3)", marginTop: 2 }}>
-                        confidence
-                      </div>
-                    </div>
-                  </div>
-
-                  {isOpen && (
-                    <div style={{
-                      marginTop: 12, paddingTop: 12,
-                      borderTop: "1px solid var(--border)",
-                      display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8,
-                    }}>
-                      {[
-                        { l: "Detected", v: new Date(d.created_at).toLocaleString("en-AU", {
-                            hour: "2-digit", minute: "2-digit",
-                            day: "2-digit", month: "short" }) },
-                        { l: "Confidence", v: `${conf}%` },
-                        { l: "Detector", v: meta.detector || "birdnet" },
-                        { l: "Window", v: meta.start_time_secs != null
-                            ? `${meta.start_time_secs.toFixed(1)}–${(meta.end_time_secs || 0).toFixed(1)}s`
-                            : "—" },
-                      ].map(x => (
-                        <div key={x.l} style={{ background: "var(--surface-2)",
-                            borderRadius: "var(--r-sm)", padding: "8px 10px" }}>
-                          <div style={{ fontSize: 10, color: "var(--text-3)",
-                              fontWeight: 600, letterSpacing: 0.5,
-                              textTransform: "uppercase", marginBottom: 2 }}>{x.l}</div>
-                          <div style={{ fontSize: 13, color: "var(--text)",
-                              fontWeight: 500 }}>{x.v}</div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-            {filtered.length > 50 && (
-              <div style={{ textAlign: "center", padding: 12,
-                  fontSize: 12, color: "var(--text-3)" }}>
-                Showing latest 50 of {filtered.length}
+        {/* ─── LIVE VIEW ─────────────────────────────────────────────── */}
+        {viewMode === "live" && (
+          <>
+            {/* Empty state */}
+            {!loading && detections.length === 0 && !error && (
+              <div style={{
+                textAlign: "center", padding: "60px 20px",
+                color: "var(--text-2)",
+              }}>
+                <div style={{ fontSize: 56, marginBottom: 16, opacity: 0.4 }}>🎤</div>
+                <h2 style={{ fontSize: 18, fontWeight: 600, color: "var(--text)", marginBottom: 8 }}>
+                  Listening for birds
+                </h2>
+                <p style={{ fontSize: 14, lineHeight: 1.5, maxWidth: 320, margin: "0 auto" }}>
+                  Detections from your microphone will appear here. The Pi posts a new
+                  entry whenever BirdNET hears a bird above your confidence threshold.
+                </p>
               </div>
             )}
-          </div>
+
+            {/* Filtered-out notice */}
+            {!loading && detections.length > 0 && liveItems.length === 0 && (
+              <div style={{
+                textAlign: "center", padding: "40px 20px", color: "var(--text-2)",
+              }}>
+                <div style={{ fontSize: 36, marginBottom: 12, opacity: 0.4 }}>🔍</div>
+                <p style={{ fontSize: 15, marginBottom: 16 }}>
+                  {hiddenByFilter > 0
+                    ? `${hiddenByFilter} detection${hiddenByFilter === 1 ? "" : "s"} hidden by current filter.`
+                    : "Nothing to show. New detections will appear here."}
+                </p>
+                {hiddenByFilter > 0 && (
+                  <button onClick={() => setSettingsOpen(true)} style={{
+                    padding: "10px 16px", background: "var(--primary)", color: "#fff",
+                    border: "none", borderRadius: "var(--r-md)", fontSize: 14,
+                    fontWeight: 600, cursor: "pointer",
+                  }}>Adjust filter</button>
+                )}
+              </div>
+            )}
+
+            {/* Detection list */}
+            {liveItems.length > 0 && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 8 }}>
+                {liveItems.slice(0, 50).map(d => (
+                  <DetectionCard
+                    key={d.id} d={d}
+                    expanded={expandedId === d.id}
+                    onToggle={() => setExpandedId(expandedId === d.id ? null : d.id)}
+                    onDismiss={() => setDismissed(d.id, true)}
+                    mode="live"
+                  />
+                ))}
+                {liveItems.length > 50 && (
+                  <div style={{ textAlign: "center", padding: 12,
+                      fontSize: 12, color: "var(--text-3)" }}>
+                    Showing latest 50 of {liveItems.length}
+                  </div>
+                )}
+              </div>
+            )}
+          </>
+        )}
+
+        {/* ─── HISTORY VIEW ──────────────────────────────────────────── */}
+        {viewMode === "history" && (
+          <>
+            {historyGroups.length === 0 ? (
+              <div style={{
+                textAlign: "center", padding: "60px 20px",
+                color: "var(--text-2)",
+              }}>
+                <div style={{ fontSize: 56, marginBottom: 16, opacity: 0.4 }}>🗂</div>
+                <h2 style={{ fontSize: 18, fontWeight: 600, color: "var(--text)", marginBottom: 8 }}>
+                  No cleared detections
+                </h2>
+                <p style={{ fontSize: 14, lineHeight: 1.5, maxWidth: 320, margin: "0 auto" }}>
+                  When you clear a detection from the live feed, it'll show up here so
+                  you can recover it if needed.
+                </p>
+                <button onClick={() => setViewMode("live")} style={{
+                  marginTop: 20, padding: "10px 16px",
+                  background: "var(--primary)", color: "#fff",
+                  border: "none", borderRadius: "var(--r-md)", fontSize: 14,
+                  fontWeight: 600, cursor: "pointer",
+                }}>Back to live</button>
+              </div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 16, marginTop: 8 }}>
+                {historyGroups.map(({ bucket, items }) => (
+                  <section key={bucket}>
+                    <h2 style={{
+                      fontSize: 11, fontWeight: 700, color: "var(--text-3)",
+                      letterSpacing: 0.8, textTransform: "uppercase",
+                      marginBottom: 8, paddingLeft: 4,
+                    }}>
+                      {bucket} <span style={{ color: "var(--text-3)", opacity: 0.7 }}>· {items.length}</span>
+                    </h2>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                      {items.map(d => (
+                        <DetectionCard
+                          key={d.id} d={d}
+                          expanded={expandedId === d.id}
+                          onToggle={() => setExpandedId(expandedId === d.id ? null : d.id)}
+                          onRestore={() => setDismissed(d.id, false)}
+                          mode="history"
+                        />
+                      ))}
+                    </div>
+                  </section>
+                ))}
+              </div>
+            )}
+          </>
         )}
       </main>
 
@@ -764,7 +1027,8 @@ function App() {
       <SettingsSheet
         open={settingsOpen}
         onClose={() => setSettingsOpen(false)}
-        preset={preset} setPreset={setPreset}
+        viewFilter={viewFilter} setViewFilter={setViewFilter}
+        notifMode={notifMode} setNotifMode={setNotifMode}
         confThreshold={confThreshold} setConfThreshold={setConfThreshold}
         muted={muted} setMuted={setMuted}
         allSeenSpecies={speciesByLabel}
