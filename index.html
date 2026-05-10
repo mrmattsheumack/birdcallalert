@@ -96,17 +96,18 @@ const SUPA_HEADERS = {
   "Authorization": "Bearer " + SUPA_KEY,
 };
 
-// ─── Priority species ───────────────────────────────────────────────
-// Three-bucket species model:
-//   PRIORITY → in this set, gets star + (optionally) push notification
-//   ALL ELSE → not in this set; appears in feed but no notification
-//   EXCLUDED → handled Pi-side, never reaches the app
-//
-// This is the in-code source of truth. The Pi script's TARGET_SPECIES
-// should match this (but note: server-side filtering was relaxed in v2,
-// so the Pi now posts everything not in EXCLUDED_SPECIES, and we do the
-// priority/non-priority split here based on this set).
-const PRIORITY_SPECIES = new Set([
+// ─── Audio server config ────────────────────────────────────────────
+// The Pi runs a small HTTP server on port 8080 that streams clips and
+// accepts /promote requests for moving clips into the training corpus.
+// Only reachable from the same network as the Pi (home wifi).
+const PI_AUDIO_BASE = "http://eaglecam.local:8090";
+
+// ─── Default priority list (seed) ───────────────────────────────────
+// In v4 the user's classification (priority/normal/suspect/muted) lives
+// in localStorage. This list is the SEED: on first load, these species
+// are set to "priority". After that, the user controls everything via
+// the Settings sheet.
+const DEFAULT_PRIORITY_SPECIES = [
   // Raptors & owls
   "Wedge-tailed Eagle_Aquila audax",
   "White-bellied Sea-Eagle_Haliaeetus leucogaster",
@@ -123,11 +124,29 @@ const PRIORITY_SPECIES = new Set([
   // Special cockatoos
   "Yellow-tailed Black-Cockatoo_Zanda funerea",
   "Gang-gang Cockatoo_Callocephalon fimbriatum",
-  // Other uncommon visitors worth knowing about
+  // Other uncommon visitors
   "Satin Bowerbird_Ptilonorhynchus violaceus",
   "Sacred Kingfisher_Todiramphus sanctus",
   "Olive-backed Oriole_Oriolus sagittatus",
-]);
+];
+
+// ─── Classification states ──────────────────────────────────────────
+// Four states a species can be in:
+//   priority — alert me with push notification, show with star+orange
+//   normal   — show in feed, no push (default for unclassified species)
+//   suspect  — show in feed with yellow border + warning, no push.
+//              "I know this label is wrong but want to investigate the call"
+//   muted    — don't show at all. Pi-side: don't even save audio.
+const CLASSIFICATIONS = {
+  priority: { label: "Priority",     icon: "⭐", color: "var(--accent)",
+              desc: "Push notification + star" },
+  normal:   { label: "Normal",       icon: "○",  color: "var(--text-3)",
+              desc: "In feed, silent (default)" },
+  suspect:  { label: "Suspect",      icon: "⚠️", color: "#ca8a04",
+              desc: "In feed with warning. Wrong ID, investigating" },
+  muted:    { label: "Muted",        icon: "🔇", color: "#94a3b8",
+              desc: "Hidden. Pi stops saving audio for these" },
+};
 
 // View filter for the live feed.
 const VIEW_FILTERS = {
@@ -135,21 +154,81 @@ const VIEW_FILTERS = {
   priority: { label: "Priority only", icon: "⭐" },
 };
 
-// Notification mode: which detections fire a browser notification.
+// Notification mode.
 const NOTIF_MODES = {
-  priority: { label: "Priority only", desc: "Only raptors + special visitors" },
+  priority: { label: "Priority only", desc: "Only species marked priority" },
   all:      { label: "All detections",  desc: "Every new detection above threshold" },
   off:      { label: "Off",             desc: "No browser notifications" },
 };
 
 // ─── localStorage keys ──────────────────────────────────────────────
+// In v4 the species classifications live in `bca_classifications` as a
+// {label: state} object. Old `bca_muted` is read once to migrate, then
+// abandoned.
 const LS = {
-  muted:     "bca_muted",
-  filter:    "bca_filter",      // "all" | "priority"  (was "bca_preset")
-  notifMode: "bca_notif_mode",  // "priority" | "all" | "off"
-  conf:      "bca_conf",
-  lastNotif: "bca_last_notif_id",
+  classifications: "bca_classifications",  // v4: {species_label: state}
+  classificationsSeeded: "bca_classifications_seeded",
+  muted_legacy:    "bca_muted",   // v3 and earlier - migrate once
+  filter:          "bca_filter",
+  notifMode:       "bca_notif_mode",
+  conf:            "bca_conf",
+  lastNotif:       "bca_last_notif_id",
 };
+
+// ─── Classification helpers (abstraction layer) ─────────────────────
+// All reads/writes go through these functions. When we eventually
+// migrate to Supabase-backed classification, only these change.
+function loadClassifications() {
+  try {
+    const raw = localStorage.getItem(LS.classifications);
+    if (raw) return JSON.parse(raw);
+  } catch (e) {}
+  return null;  // null = needs seeding
+}
+function saveClassifications(obj) {
+  try { localStorage.setItem(LS.classifications, JSON.stringify(obj)); }
+  catch (e) {}
+}
+function seedClassifications() {
+  // Build initial classifications:
+  //   - All DEFAULT_PRIORITY_SPECIES → priority
+  //   - All species in old bca_muted → muted (one-time v3→v4 migration)
+  //   - Everything else → no entry (treated as "normal" by default)
+  const obj = {};
+  for (const s of DEFAULT_PRIORITY_SPECIES) obj[s] = "priority";
+  try {
+    const oldMuted = JSON.parse(localStorage.getItem(LS.muted_legacy) || "[]");
+    for (const s of oldMuted) obj[s] = "muted";
+  } catch (e) {}
+  saveClassifications(obj);
+  localStorage.setItem(LS.classificationsSeeded, "1");
+  return obj;
+}
+function getClassification(label, classifications) {
+  return classifications[label] || "normal";
+}
+
+// Sync the muted species list to Supabase pi_config table so the Pi
+// stops saving audio for muted species. Called whenever classifications
+// change. Failure is non-blocking.
+async function syncMutedToServer(classifications) {
+  const muted = Object.entries(classifications)
+    .filter(([_, state]) => state === "muted")
+    .map(([label]) => label);
+  try {
+    // Upsert: if row exists, update value; else insert
+    await fetch(
+      `${SUPA_URL}/rest/v1/pi_config?key=eq.muted_species`,
+      {
+        method: "PATCH",
+        headers: { ...SUPA_HEADERS, "Prefer": "return=minimal" },
+        body: JSON.stringify({ value: muted }),
+      }
+    );
+  } catch (e) {
+    console.warn("Failed to sync muted list to Pi:", e);
+  }
+}
 
 // ─── Helpers ────────────────────────────────────────────────────────
 function birdLabel(d) {
@@ -160,10 +239,23 @@ function birdLabel(d) {
 }
 
 // True if a detection should be flagged as priority. Priority is computed
-// client-side from PRIORITY_SPECIES rather than read from a server-set flag,
-// so changing the priority list is a one-side edit (this file only).
-function isPriority(d) {
-  return PRIORITY_SPECIES.has(birdLabel(d));
+// client-side from the user's classifications object (in App state, persisted
+// to localStorage) rather than read from a server-set flag.
+function isPriority(d, classifications) {
+  const label = birdLabel(d);
+  return getClassification(label, classifications) === "priority";
+}
+
+// True if a detection's species is currently muted by the user.
+function isMuted(d, classifications) {
+  const label = birdLabel(d);
+  return getClassification(label, classifications) === "muted";
+}
+
+// True if user has marked this species as suspect.
+function isSuspect(d, classifications) {
+  const label = birdLabel(d);
+  return getClassification(label, classifications) === "suspect";
 }
 
 // Date-bucket label for the History page grouping.
@@ -228,13 +320,18 @@ function lsSet(key, val) {
 // ─── Settings sheet (modal) ─────────────────────────────────────────
 function SettingsSheet({ open, onClose, viewFilter, setViewFilter, notifMode, setNotifMode,
                          confThreshold, setConfThreshold,
-                         muted, setMuted, allSeenSpecies, notifPerm, requestNotif }) {
+                         classifications, setClassifications,
+                         allSeenSpecies, notifPerm, requestNotif }) {
   if (!open) return null;
 
-  function toggleMute(label) {
-    setMuted(prev => {
-      const next = new Set(prev);
-      if (next.has(label)) next.delete(label); else next.add(label);
+  function setSpeciesClassification(label, state) {
+    setClassifications(prev => {
+      const next = { ...prev };
+      if (state === "normal") {
+        delete next[label];  // normal = absence of explicit classification
+      } else {
+        next[label] = state;
+      }
       return next;
     });
   }
@@ -416,70 +513,99 @@ function SettingsSheet({ open, onClose, viewFilter, setViewFilter, notifMode, se
             </div>
           </section>
 
-          {/* Per-species mute */}
+          {/* Per-species classification (quad-state) */}
           <section>
-            <h2 style={{ fontSize: 12, fontWeight: 700, color: "var(--text-3)",
-                letterSpacing: 0.8, textTransform: "uppercase", marginBottom: 10 }}>
-              Mute species ({muted.size} muted)
-            </h2>
+            {(() => {
+              const counts = { priority: 0, suspect: 0, muted: 0, normal: 0 };
+              for (const s of allSeenSpecies) {
+                const c = classifications[s.label] || "normal";
+                counts[c] = (counts[c] || 0) + 1;
+              }
+              return (
+                <h2 style={{ fontSize: 12, fontWeight: 700, color: "var(--text-3)",
+                    letterSpacing: 0.8, textTransform: "uppercase", marginBottom: 10 }}>
+                  Species classification
+                  <span style={{ fontWeight: 500, color: "var(--text-3)", marginLeft: 6 }}>
+                    {counts.priority}⭐ · {counts.suspect}⚠️ · {counts.muted}🔇 · {counts.normal}○
+                  </span>
+                </h2>
+              );
+            })()}
+            <div style={{ fontSize: 12, color: "var(--text-3)", marginBottom: 10, lineHeight: 1.4 }}>
+              Tap a species to cycle through states: ○ Normal → ⭐ Priority → ⚠️ Suspect → 🔇 Muted → ○ Normal.
+              Muted species stop being saved on the Pi (saves disk).
+            </div>
             {allSeenSpecies.length === 0 ? (
               <div style={{ fontSize: 14, color: "var(--text-2)",
                   background: "var(--surface)", border: "1px solid var(--border)",
                   borderRadius: "var(--r-md)", padding: "20px 16px", textAlign: "center" }}>
-                No species detected yet. Mute toggles appear here once detections come in.
+                No species detected yet. The list will populate as detections arrive.
               </div>
             ) : (
               <div style={{ background: "var(--surface)", border: "1px solid var(--border)",
                   borderRadius: "var(--r-md)", overflow: "hidden" }}>
                 {allSeenSpecies.map((s, i) => {
-                  const isMuted = muted.has(s.label);
+                  const cls = classifications[s.label] || "normal";
+                  const cfg = CLASSIFICATIONS[cls];
+                  const order = ["normal", "priority", "suspect", "muted"];
+                  const next = order[(order.indexOf(cls) + 1) % order.length];
                   return (
-                    <button key={s.label} onClick={() => toggleMute(s.label)}
+                    <div key={s.label}
                       style={{
-                        display: "flex", alignItems: "center", justifyContent: "space-between",
-                        gap: 12, padding: "14px 16px", width: "100%",
-                        background: "transparent",
+                        display: "flex", alignItems: "center", gap: 10,
+                        padding: "12px 12px 12px 16px",
                         borderTop: i === 0 ? "none" : "1px solid var(--border)",
-                        borderLeft: "none", borderRight: "none", borderBottom: "none",
-                        cursor: "pointer", textAlign: "left",
                       }}>
+                      <button onClick={() => setSpeciesClassification(s.label, next)}
+                        title={`${cfg.label} — tap to change`}
+                        aria-label={`State: ${cfg.label}, tap to change`}
+                        style={{
+                          width: 36, height: 36, borderRadius: 8,
+                          flexShrink: 0,
+                          background: cls === "normal" ? "var(--surface-2)" : cfg.color,
+                          color: cls === "normal" ? "var(--text-2)" : "#fff",
+                          border: "1px solid " + (cls === "normal" ? "var(--border)" : cfg.color),
+                          fontSize: 18, cursor: "pointer",
+                          display: "flex", alignItems: "center", justifyContent: "center",
+                        }}>
+                        {cfg.icon}
+                      </button>
                       <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontSize: 15, fontWeight: 500,
-                            color: isMuted ? "var(--text-3)" : "var(--text)",
-                            textDecoration: isMuted ? "line-through" : "none" }}>
-                          {PRIORITY_SPECIES.has(s.label) && !isMuted &&
-                            <span style={{ marginRight: 6, color: "var(--accent)" }}>★</span>}
+                        <div style={{ fontSize: 14, fontWeight: 500,
+                            color: cls === "muted" ? "var(--text-3)" : "var(--text)",
+                            textDecoration: cls === "muted" ? "line-through" : "none",
+                            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                           {s.common}
                         </div>
-                        <div style={{ fontSize: 12, color: "var(--text-3)", marginTop: 2 }}>
-                          {s.count} detection{s.count === 1 ? "" : "s"}
+                        <div style={{ fontSize: 11, color: "var(--text-3)", marginTop: 2,
+                            display: "flex", gap: 8 }}>
+                          <span>{s.count} detection{s.count === 1 ? "" : "s"}</span>
+                          {s.lastSeen && <span>· last {fmtAgeShort(s.lastSeen)}</span>}
                         </div>
                       </div>
-                      <div style={{
-                        width: 44, height: 26, borderRadius: 13,
-                        background: isMuted ? "var(--surface-2)" : "var(--primary)",
-                        position: "relative", flexShrink: 0, transition: "background 0.15s",
-                      }}>
-                        <div style={{
-                          width: 22, height: 22, borderRadius: "50%",
-                          background: "#fff", position: "absolute", top: 2,
-                          left: isMuted ? 2 : 20, transition: "left 0.15s",
-                          boxShadow: "0 1px 3px rgba(0,0,0,0.2)",
-                        }}/>
-                      </div>
-                    </button>
+                    </div>
                   );
                 })}
               </div>
             )}
-            {muted.size > 0 && (
-              <button onClick={() => setMuted(new Set())} style={{
-                marginTop: 10, padding: "10px 14px", width: "100%",
+            <div style={{ display: "flex", gap: 6, marginTop: 10 }}>
+              <button onClick={() => setClassifications({})} style={{
+                flex: 1, padding: "10px 14px",
                 background: "transparent", color: "var(--text-2)",
                 border: "1px solid var(--border)", borderRadius: "var(--r-md)",
-                fontSize: 14, cursor: "pointer",
-              }}>Unmute all</button>
-            )}
+                fontSize: 13, cursor: "pointer",
+              }}>Reset all to Normal</button>
+              <button onClick={() => {
+                const seeded = {};
+                for (const s of DEFAULT_PRIORITY_SPECIES) seeded[s] = "priority";
+                setClassifications(seeded);
+              }} style={{
+                flex: 1, padding: "10px 14px",
+                background: "transparent", color: "var(--text-2)",
+                border: "1px solid var(--border)", borderRadius: "var(--r-md)",
+                fontSize: 13, cursor: "pointer",
+              }}>Restore defaults</button>
+            </div>
           </section>
 
         </div>
@@ -492,20 +618,30 @@ function SettingsSheet({ open, onClose, viewFilter, setViewFilter, notifMode, se
 // Single detection row, used in both the live feed and the history view.
 // `mode` is "live" or "history" - in live mode, the action button is X
 // (dismiss); in history it's an undo arrow (restore).
-function DetectionCard({ d, expanded, onToggle, onDismiss, onRestore, mode }) {
+//
+// v4 props: classification (priority/normal/suspect/muted),
+//           onSetClassification(label, newState) - changes user's classification
+//           onSetManualLabel(detectionId, label) - records manual relabel
+function DetectionCard({ d, expanded, onToggle, onDismiss, onRestore, mode,
+                         classification, onSetClassification, onSetManualLabel }) {
   const label = birdLabel(d);
   const meta = d.metadata || {};
-  const priority = PRIORITY_SPECIES.has(label);
   const conf = Math.round((d.confidence || 0) * 100);
 
-  // v3: regional plausibility. region_match is set Pi-side from the eBird
-  // 10km list. Three states:
-  //   true  -> species recorded within 10km of home, plausible
-  //   false -> species NOT recorded within 10km, flagged as likely misID
-  //   null/undefined -> region data wasn't available (older rows, or Pi
-  //                     didn't load the JSON), don't claim anything either way
+  const isPriorityCls = classification === "priority";
+  const isSuspectCls  = classification === "suspect";
+
+  // v3: regional plausibility
   const regionFlagged = meta.region_match === false;
   const regionCount = typeof meta.region_count === "number" ? meta.region_count : null;
+
+  // v4: audio clip available?
+  const clipFilename = meta.clip_filename || null;
+  const clipUrl = clipFilename ? `${PI_AUDIO_BASE}/clips/${clipFilename}` : null;
+
+  // v4: manual label persisted in the row's metadata
+  const [manualLabelDraft, setManualLabelDraft] = useState(meta.manual_label || "");
+  const [manualSaving, setManualSaving] = useState(false);
 
   // Stop propagation so action button clicks don't toggle the card
   function handleAction(e, fn) {
@@ -513,16 +649,39 @@ function DetectionCard({ d, expanded, onToggle, onDismiss, onRestore, mode }) {
     fn?.();
   }
 
-  // Border styling: priority orange wins over yellow flag (priority is
-  // a stronger signal of relevance). Otherwise yellow when flagged.
+  // Border styling by classification (live mode only)
   let borderColor = "var(--border)";
   let borderLeft = "1px solid var(--border)";
-  if (priority && mode === "live") {
-    borderColor = "rgba(217, 119, 6, 0.35)";
-    borderLeft = "4px solid var(--accent)";
-  } else if (regionFlagged && mode === "live") {
-    borderColor = "rgba(202, 138, 4, 0.45)";  // amber/yellow
-    borderLeft = "4px solid #ca8a04";
+  if (mode === "live") {
+    if (isPriorityCls) {
+      borderColor = "rgba(217, 119, 6, 0.35)";
+      borderLeft = "4px solid var(--accent)";
+    } else if (isSuspectCls) {
+      borderColor = "rgba(202, 138, 4, 0.55)";
+      borderLeft = "4px solid #ca8a04";
+    } else if (regionFlagged) {
+      borderColor = "rgba(202, 138, 4, 0.45)";
+      borderLeft = "4px solid #ca8a04";
+    }
+  }
+
+  async function handleSaveManualLabel(e) {
+    e.stopPropagation();
+    if (manualSaving) return;
+    setManualSaving(true);
+    try {
+      await onSetManualLabel?.(d.id, manualLabelDraft.trim(), clipFilename);
+    } finally {
+      setManualSaving(false);
+    }
+  }
+
+  function cycleClassification(e) {
+    e.stopPropagation();
+    const order = ["normal", "priority", "suspect", "muted"];
+    const cur = classification || "normal";
+    const next = order[(order.indexOf(cur) + 1) % order.length];
+    onSetClassification?.(label, next);
   }
 
   return (
@@ -538,13 +697,31 @@ function DetectionCard({ d, expanded, onToggle, onDismiss, onRestore, mode }) {
         opacity: mode === "history" ? 0.85 : 1,
       }}>
 
-      {/* v3: yellow banner for region-implausible detections */}
-      {regionFlagged && mode === "live" && (
+      {/* Suspect banner takes priority over region banner. Both are yellow but
+          carry slightly different messages. */}
+      {isSuspectCls && mode === "live" && (
         <div style={{
           display: "flex", alignItems: "center", gap: 8,
           margin: "-2px -4px 10px",
           padding: "8px 10px",
-          background: "rgba(254, 243, 199, 0.85)",  // soft amber bg
+          background: "rgba(254, 243, 199, 0.85)",
+          border: "1px solid rgba(202, 138, 4, 0.45)",
+          borderRadius: "var(--r-sm)",
+          fontSize: 12, color: "#854d0e", lineHeight: 1.35,
+        }}>
+          <span style={{ fontSize: 16, lineHeight: 1 }}>⚠️</span>
+          <span style={{ flex: 1 }}>
+            <strong>Suspect</strong> — you've marked this species as likely misidentified.
+            Listen to the clip and record what it actually is.
+          </span>
+        </div>
+      )}
+      {!isSuspectCls && regionFlagged && mode === "live" && (
+        <div style={{
+          display: "flex", alignItems: "center", gap: 8,
+          margin: "-2px -4px 10px",
+          padding: "8px 10px",
+          background: "rgba(254, 243, 199, 0.85)",
           border: "1px solid rgba(202, 138, 4, 0.35)",
           borderRadius: "var(--r-sm)",
           fontSize: 12, color: "#854d0e", lineHeight: 1.35,
@@ -552,7 +729,6 @@ function DetectionCard({ d, expanded, onToggle, onDismiss, onRestore, mode }) {
           <span style={{ fontSize: 16, lineHeight: 1 }}>⚠️</span>
           <span style={{ flex: 1 }}>
             <strong>Likely misidentified</strong> — not recorded within 10km of your home in eBird data.
-            {" "}The actual sound may be a different species worth investigating.
           </span>
         </div>
       )}
@@ -562,8 +738,11 @@ function DetectionCard({ d, expanded, onToggle, onDismiss, onRestore, mode }) {
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 17, fontWeight: 600, color: "var(--text)",
               lineHeight: 1.25 }}>
-            {priority && mode === "live" && (
+            {isPriorityCls && mode === "live" && (
               <span style={{ color: "var(--accent)", marginRight: 6 }}>★</span>
+            )}
+            {isSuspectCls && mode === "live" && !isPriorityCls && (
+              <span style={{ color: "#ca8a04", marginRight: 6 }}>⚠</span>
             )}
             {d.species_guess}
           </div>
@@ -571,6 +750,16 @@ function DetectionCard({ d, expanded, onToggle, onDismiss, onRestore, mode }) {
             <div style={{ fontSize: 13, color: "var(--text-2)",
                 fontStyle: "italic", marginTop: 3 }}>
               {meta.scientific_name}
+            </div>
+          )}
+          {/* Manual relabel chip if set */}
+          {meta.manual_label && (
+            <div style={{ fontSize: 12, color: "var(--text)",
+                marginTop: 6, padding: "3px 8px",
+                background: "rgba(31, 107, 58, 0.1)",
+                border: "1px solid rgba(31, 107, 58, 0.25)",
+                borderRadius: 999, display: "inline-block" }}>
+              You: <strong>{meta.manual_label}</strong>
             </div>
           )}
           <div style={{ fontSize: 13, color: "var(--text-2)", marginTop: 6 }}>
@@ -587,13 +776,12 @@ function DetectionCard({ d, expanded, onToggle, onDismiss, onRestore, mode }) {
           <div style={{ fontSize: 11, color: "var(--text-3)" }}>
             confidence
           </div>
-          {/* Action button (clear or restore). 32px touch target. */}
           {mode === "live" && onDismiss && (
             <button onClick={(e) => handleAction(e, onDismiss)} aria-label="Clear"
               title="Clear detection"
               style={{
                 marginTop: 4,
-                width: 32, height: 32, borderRadius: "50%", border: "none",
+                width: 32, height: 32, borderRadius: "50%",
                 background: "transparent", color: "var(--text-3)",
                 fontSize: 16, cursor: "pointer", lineHeight: 1,
                 display: "flex", alignItems: "center", justifyContent: "center",
@@ -605,7 +793,7 @@ function DetectionCard({ d, expanded, onToggle, onDismiss, onRestore, mode }) {
               title="Restore to live feed"
               style={{
                 marginTop: 4,
-                padding: "4px 10px", borderRadius: 14, border: "none",
+                padding: "4px 10px", borderRadius: 14,
                 background: "var(--surface-2)", color: "var(--primary)",
                 fontSize: 11, fontWeight: 600, cursor: "pointer", lineHeight: 1,
                 display: "flex", alignItems: "center", gap: 4,
@@ -616,39 +804,153 @@ function DetectionCard({ d, expanded, onToggle, onDismiss, onRestore, mode }) {
       </div>
 
       {expanded && (
-        <div style={{
-          marginTop: 12, paddingTop: 12,
-          borderTop: "1px solid var(--border)",
-          display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8,
-        }}>
-          {[
-            { l: "Detected", v: new Date(d.created_at).toLocaleString("en-AU", {
-                hour: "2-digit", minute: "2-digit",
-                day: "2-digit", month: "short" }) },
-            { l: "Confidence", v: `${conf}%` },
-            { l: "Detector", v: meta.detector || "birdnet" },
-            { l: "Window", v: meta.start_time_secs != null
-                ? `${meta.start_time_secs.toFixed(1)}–${(meta.end_time_secs || 0).toFixed(1)}s`
-                : "—" },
-            ...(meta.region_match !== undefined ? [{
-              l: "10km eBird records",
-              v: regionFlagged
-                ? "Not recorded within 10km"
-                : (regionCount ? `${regionCount.toLocaleString()} sighting${regionCount === 1 ? "" : "s"}` : "Plausible"),
-              span: true,
-            }] : []),
-          ].map(x => (
-            <div key={x.l} style={{ background: "var(--surface-2)",
-                borderRadius: "var(--r-sm)", padding: "8px 10px",
-                gridColumn: x.span ? "1 / -1" : "auto" }}>
+        <div style={{ marginTop: 12, paddingTop: 12,
+            borderTop: "1px solid var(--border)" }}>
+
+          {/* Audio clip - opens in new tab. We can't inline-play because the
+              app is HTTPS (Netlify) and the Pi serves HTTP. Browsers block
+              mixed-content media. New-tab navigation works. */}
+          {clipUrl && (
+            <div style={{ marginBottom: 12 }}>
               <div style={{ fontSize: 10, color: "var(--text-3)",
                   fontWeight: 600, letterSpacing: 0.5,
-                  textTransform: "uppercase", marginBottom: 2 }}>{x.l}</div>
-              <div style={{ fontSize: 13,
-                  color: x.l === "10km eBird records" && regionFlagged ? "#854d0e" : "var(--text)",
-                  fontWeight: 500 }}>{x.v}</div>
+                  textTransform: "uppercase", marginBottom: 6 }}>
+                Audio clip
+              </div>
+              <a
+                href={clipUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={(e) => e.stopPropagation()}
+                style={{
+                  display: "inline-flex", alignItems: "center", gap: 8,
+                  padding: "10px 14px", textDecoration: "none",
+                  background: "var(--primary)", color: "#fff",
+                  borderRadius: "var(--r-sm)",
+                  fontSize: 13, fontWeight: 600,
+                }}
+              >
+                ▶ Play clip in new tab
+              </a>
+              <div style={{ fontSize: 11, color: "var(--text-3)", marginTop: 6, lineHeight: 1.4 }}>
+                Only plays when your phone is on the same wifi as the Pi.
+                Opens in a new tab because Netlify serves HTTPS but the Pi
+                serves HTTP (browsers block inline mixed-content audio).
+              </div>
             </div>
-          ))}
+          )}
+
+          {/* Manual relabel input */}
+          {clipUrl && mode === "live" && (
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ fontSize: 10, color: "var(--text-3)",
+                  fontWeight: 600, letterSpacing: 0.5,
+                  textTransform: "uppercase", marginBottom: 6 }}>
+                What is this actually?
+              </div>
+              <div style={{ display: "flex", gap: 6 }}>
+                <input
+                  type="text"
+                  value={manualLabelDraft}
+                  onChange={(e) => { e.stopPropagation(); setManualLabelDraft(e.target.value); }}
+                  onClick={(e) => e.stopPropagation()}
+                  placeholder="e.g. Bell Miner, or 'unknown' if not sure"
+                  style={{
+                    flex: 1, padding: "8px 10px",
+                    border: "1px solid var(--border)",
+                    borderRadius: "var(--r-sm)",
+                    fontSize: 14, fontFamily: "inherit",
+                    background: "var(--surface)",
+                  }}
+                />
+                <button
+                  onClick={handleSaveManualLabel}
+                  disabled={manualSaving || !manualLabelDraft.trim() || manualLabelDraft.trim() === (meta.manual_label || "")}
+                  style={{
+                    padding: "8px 14px",
+                    background: "var(--primary)", color: "#fff",
+                    border: "none", borderRadius: "var(--r-sm)",
+                    fontSize: 13, fontWeight: 600, cursor: "pointer",
+                    opacity: (manualSaving || !manualLabelDraft.trim() || manualLabelDraft.trim() === (meta.manual_label || "")) ? 0.5 : 1,
+                  }}
+                >{manualSaving ? "..." : "Save"}</button>
+              </div>
+              <div style={{ fontSize: 11, color: "var(--text-3)", marginTop: 6, lineHeight: 1.4 }}>
+                Saving copies this clip to <code style={{
+                  background: "var(--surface-2)", padding: "1px 4px",
+                  borderRadius: 3, fontSize: 11 }}>training-corpus/&lt;label&gt;</code>
+                {" "}on the Pi. Used later for a custom classifier.
+              </div>
+            </div>
+          )}
+
+          {/* Classification quick-toggle */}
+          {mode === "live" && (
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ fontSize: 10, color: "var(--text-3)",
+                  fontWeight: 600, letterSpacing: 0.5,
+                  textTransform: "uppercase", marginBottom: 6 }}>
+                Species classification
+              </div>
+              <div style={{ display: "flex", gap: 4 }}>
+                {Object.entries(CLASSIFICATIONS).map(([key, cfg]) => {
+                  const active = (classification || "normal") === key;
+                  return (
+                    <button key={key}
+                      onClick={(e) => { e.stopPropagation(); onSetClassification?.(label, key); }}
+                      style={{
+                        flex: 1, padding: "8px 6px",
+                        background: active ? cfg.color : "var(--surface)",
+                        color: active ? "#fff" : "var(--text-2)",
+                        border: "1px solid " + (active ? cfg.color : "var(--border)"),
+                        borderRadius: "var(--r-sm)",
+                        fontSize: 11, fontWeight: 500, cursor: "pointer",
+                        display: "flex", flexDirection: "column", gap: 2,
+                        alignItems: "center",
+                      }}>
+                      <span style={{ fontSize: 14 }}>{cfg.icon}</span>
+                      <span>{cfg.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+              <div style={{ fontSize: 11, color: "var(--text-3)", marginTop: 6 }}>
+                Affects all detections of <strong>{d.species_guess}</strong>, current and future.
+              </div>
+            </div>
+          )}
+
+          {/* Metadata grid */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+            {[
+              { l: "Detected", v: new Date(d.created_at).toLocaleString("en-AU", {
+                  hour: "2-digit", minute: "2-digit",
+                  day: "2-digit", month: "short" }) },
+              { l: "Confidence", v: `${conf}%` },
+              { l: "Detector", v: meta.detector || "birdnet" },
+              { l: "Window", v: meta.start_time_secs != null
+                  ? `${meta.start_time_secs.toFixed(1)}–${(meta.end_time_secs || 0).toFixed(1)}s`
+                  : "—" },
+              ...(meta.region_match !== undefined ? [{
+                l: "10km eBird records",
+                v: regionFlagged
+                  ? "Not recorded within 10km"
+                  : (regionCount ? `${regionCount.toLocaleString()} sighting${regionCount === 1 ? "" : "s"}` : "Plausible"),
+                span: true,
+              }] : []),
+            ].map(x => (
+              <div key={x.l} style={{ background: "var(--surface-2)",
+                  borderRadius: "var(--r-sm)", padding: "8px 10px",
+                  gridColumn: x.span ? "1 / -1" : "auto" }}>
+                <div style={{ fontSize: 10, color: "var(--text-3)",
+                    fontWeight: 600, letterSpacing: 0.5,
+                    textTransform: "uppercase", marginBottom: 2 }}>{x.l}</div>
+                <div style={{ fontSize: 13,
+                    color: x.l === "10km eBird records" && regionFlagged ? "#854d0e" : "var(--text)",
+                    fontWeight: 500 }}>{x.v}</div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
     </div>
@@ -671,10 +973,30 @@ function App() {
   const [viewFilter, setViewFilter] = useState(() => lsGet(LS.filter, "all"));
   const [notifMode, setNotifMode] = useState(() => lsGet(LS.notifMode, "priority"));
   const [confThreshold, setConfThreshold] = useState(() => parseFloat(lsGet(LS.conf, "0.40")));
-  const [muted, setMuted] = useState(() => {
-    try { return new Set(JSON.parse(localStorage.getItem(LS.muted) || "[]")); }
-    catch (e) { return new Set(); }
+
+  // v4: quad-state classification per species. Loaded from localStorage,
+  // seeded with DEFAULT_PRIORITY_SPECIES on first run. Migrated from the
+  // old bca_muted set if present.
+  const [classifications, setClassificationsState] = useState(() => {
+    let c = loadClassifications();
+    if (c === null) {
+      c = seedClassifications();
+    }
+    return c;
   });
+
+  // Wrapper that persists + syncs to server. Use this everywhere instead
+  // of setClassificationsState directly.
+  const setClassifications = useCallback((updater) => {
+    setClassificationsState(prev => {
+      const next = typeof updater === "function" ? updater(prev) : updater;
+      saveClassifications(next);
+      // Fire-and-forget sync of muted list to Supabase pi_config
+      syncMutedToServer(next);
+      return next;
+    });
+  }, []);
+
   const [notifPerm, setNotifPerm] = useState(() =>
     typeof Notification !== "undefined" ? Notification.permission : "unsupported");
   const lastNotifId = useRef(lsGet(LS.lastNotif, null));
@@ -683,9 +1005,13 @@ function App() {
   useEffect(() => { lsSet(LS.filter, viewFilter); }, [viewFilter]);
   useEffect(() => { lsSet(LS.notifMode, notifMode); }, [notifMode]);
   useEffect(() => { lsSet(LS.conf, String(confThreshold)); }, [confThreshold]);
+
+  // Sync muted list to Pi once on mount. Future updates go through
+  // setClassifications which also syncs.
   useEffect(() => {
-    try { localStorage.setItem(LS.muted, JSON.stringify([...muted])); } catch (e) {}
-  }, [muted]);
+    syncMutedToServer(classifications);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Tick "now" every 30s so age labels update without re-fetching
   useEffect(() => {
@@ -693,7 +1019,12 @@ function App() {
     return () => clearInterval(iv);
   }, []);
 
-  // Fetch detections from Supabase
+  // Fetch detections from Supabase. We keep `classifications` out of the
+  // deps array (and read it via a ref) so that flipping a per-species
+  // classification doesn't tear down and recreate the polling interval.
+  const classificationsRef = useRef(classifications);
+  useEffect(() => { classificationsRef.current = classifications; }, [classifications]);
+
   const fetchDetections = useCallback(async () => {
     try {
       const r = await fetch(
@@ -710,23 +1041,24 @@ function App() {
       setLastFetch(new Date());
       setError(null);
 
-      // Notification for newest detection, gated by notifMode
+      // Notification for newest detection, gated by notifMode + classification
+      const cls_now = classificationsRef.current;
       if (data && data.length > 0 && notifPerm === "granted" && notifMode !== "off") {
-        // Find the newest non-dismissed detection that we haven't already
-        // notified about. Iterating instead of taking data[0] handles the
-        // case where the newest item is dismissed or has been seen.
         for (const newest of data) {
           if (newest.dismissed) continue;
-          if (newest.id === lastNotifId.current) break; // we've already moved past this point
+          if (newest.id === lastNotifId.current) break;
           const label = birdLabel(newest);
+          const cls = getClassification(label, cls_now);
+          // Muted and suspect species never notify (suspect = "I want to see
+          // it but don't ping me about it")
+          if (cls === "muted" || cls === "suspect") continue;
           const ageMin = (Date.now() - new Date(newest.created_at).getTime()) / 60000;
           const passesMode =
             notifMode === "all" ||
-            (notifMode === "priority" && PRIORITY_SPECIES.has(label));
+            (notifMode === "priority" && cls === "priority");
           if (
             ageMin < 5 &&
             passesMode &&
-            !muted.has(label) &&
             (newest.confidence || 0) >= confThreshold
           ) {
             try {
@@ -737,7 +1069,7 @@ function App() {
               lastNotifId.current = newest.id;
               lsSet(LS.lastNotif, newest.id);
             } catch (e) {}
-            break; // notify only the single newest qualifying detection
+            break;
           }
         }
       }
@@ -745,7 +1077,7 @@ function App() {
       setError("Network error");
     }
     setLoading(false);
-  }, [notifPerm, muted, confThreshold, notifMode]);
+  }, [notifPerm, confThreshold, notifMode]);
 
   useEffect(() => {
     fetchDetections();
@@ -753,26 +1085,30 @@ function App() {
     return () => clearInterval(iv);
   }, [fetchDetections]);
 
-  // Live-view list: not dismissed, passes confidence + mute, passes filter.
-  // Sorted with priority items first, then by recency within each group.
+  // Live-view list: not dismissed, passes confidence + classification, passes filter.
+  // Sorted: priority first, then suspect, then normal, by recency within each group.
   const liveItems = useMemo(() => {
     const items = detections.filter(d => {
       if (d.dismissed) return false;
       if ((d.confidence || 0) < confThreshold) return false;
       const label = birdLabel(d);
-      if (muted.has(label)) return false;
-      if (viewFilter === "priority" && !PRIORITY_SPECIES.has(label)) return false;
+      const cls = getClassification(label, classifications);
+      if (cls === "muted") return false;
+      if (viewFilter === "priority" && cls !== "priority") return false;
       return true;
     });
-    // Stable sort: priority bucket first, then by created_at desc
+    // Stable sort: priority(0) → suspect(1) → normal(2), then by created_at desc
+    const order = { priority: 0, suspect: 1, normal: 2 };
     items.sort((a, b) => {
-      const pa = isPriority(a) ? 0 : 1;
-      const pb = isPriority(b) ? 0 : 1;
-      if (pa !== pb) return pa - pb;
+      const ca = getClassification(birdLabel(a), classifications);
+      const cb = getClassification(birdLabel(b), classifications);
+      const oa = order[ca] ?? 2;
+      const ob = order[cb] ?? 2;
+      if (oa !== ob) return oa - ob;
       return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
     });
     return items;
-  }, [detections, viewFilter, confThreshold, muted]);
+  }, [detections, viewFilter, confThreshold, classifications]);
 
   // History-view list: dismissed only, grouped by date bucket.
   // Returns an array of { bucket, items } in the order Today/Yesterday/...
@@ -800,10 +1136,10 @@ function App() {
   }, [detections, liveItems, viewMode]);
 
   // Species summary - one row per species, used both in feed grouping and
-  // in the settings mute list.
+  // in the settings classification list.
   const speciesByLabel = useMemo(() => {
     const m = new Map();
-    for (const d of detections) {  // use unfiltered list so settings can mute things even if currently filtered out
+    for (const d of detections) {  // use unfiltered list so settings sees everything
       const label = birdLabel(d);
       const e = m.get(label) || {
         label, common: d.species_guess, count: 0, latestTs: null, maxConf: 0,
@@ -815,7 +1151,10 @@ function App() {
       e.maxConf = Math.max(e.maxConf, d.confidence || 0);
       m.set(label, e);
     }
-    return [...m.values()].sort((a, b) => b.latestTs - a.latestTs);
+    // Add lastSeen as ISO string for easy display, sorted by recency
+    return [...m.values()]
+      .map(e => ({ ...e, lastSeen: e.latestTs ? new Date(e.latestTs).toISOString() : null }))
+      .sort((a, b) => b.latestTs - a.latestTs);
   }, [detections]);
 
   // Dismiss / un-dismiss a detection. Optimistically updates local state
@@ -843,6 +1182,52 @@ function App() {
       setDetections(prev => prev.map(d => d.id === id ? { ...d, dismissed: !dismissed } : d));
       setError("Network error");
       setTimeout(() => setError(null), 3000);
+    }
+  }, []);
+
+  // v4: write a manual label to a detection's metadata. The Pi polls
+  // Supabase periodically and copies labelled clips into the training
+  // corpus locally - we don't make a cross-origin HTTPS→HTTP fetch from
+  // the browser (modern browsers block that as mixed content).
+  // Optimistically updates local state; rolls back on Supabase failure.
+  const setManualLabel = useCallback(async (id, manualLabel, clipFilename) => {
+    if (!manualLabel) return;
+    const labelTrim = manualLabel.trim();
+
+    // Optimistic update of local detection
+    let prevMeta = null;
+    setDetections(prev => prev.map(d => {
+      if (d.id !== id) return d;
+      prevMeta = d.metadata;
+      return { ...d, metadata: { ...(d.metadata || {}), manual_label: labelTrim } };
+    }));
+
+    // PATCH the Supabase row's metadata. We need to merge into the existing
+    // jsonb, so fetch current metadata first then write the merged value.
+    try {
+      const current = await fetch(
+        `${SUPA_URL}/rest/v1/candidate_sightings?id=eq.${id}&select=metadata`,
+        { headers: SUPA_HEADERS }
+      );
+      const rows = await current.json();
+      const fullMeta = (rows && rows[0] && rows[0].metadata) || {};
+      const newMeta = { ...fullMeta, manual_label: labelTrim };
+      const r = await fetch(
+        `${SUPA_URL}/rest/v1/candidate_sightings?id=eq.${id}`,
+        {
+          method: "PATCH",
+          headers: { ...SUPA_HEADERS, "Prefer": "return=minimal" },
+          body: JSON.stringify({ metadata: newMeta }),
+        }
+      );
+      if (!r.ok) throw new Error(`Supabase PATCH ${r.status}`);
+    } catch (e) {
+      // Roll back
+      setDetections(prev => prev.map(d => d.id === id
+        ? { ...d, metadata: prevMeta } : d));
+      setError("Couldn't save label");
+      setTimeout(() => setError(null), 3000);
+      return;
     }
   }, []);
 
@@ -927,7 +1312,13 @@ function App() {
         </div>
 
         {/* Status chip - reflects current filter / view */}
-        {viewMode === "live" && (viewFilter !== "all" || muted.size > 0 || confThreshold > 0.4 || notifMode !== "priority") && (
+        {viewMode === "live" && (() => {
+          const mutedCount = Object.values(classifications).filter(c => c === "muted").length;
+          const suspectCount = Object.values(classifications).filter(c => c === "suspect").length;
+          const show = viewFilter !== "all" || mutedCount > 0 || suspectCount > 0
+            || confThreshold > 0.4 || notifMode !== "priority";
+          if (!show) return null;
+          return (
           <button onClick={() => setSettingsOpen(true)} style={{
             display: "inline-flex", alignItems: "center", gap: 6, marginTop: 10,
             padding: "5px 11px", background: "var(--surface)",
@@ -936,11 +1327,13 @@ function App() {
           }}>
             <span>{VIEW_FILTERS[viewFilter]?.icon} {VIEW_FILTERS[viewFilter]?.label}</span>
             {confThreshold > 0.4 && <span>· {Math.round(confThreshold * 100)}%+</span>}
-            {muted.size > 0 && <span>· {muted.size} muted</span>}
+            {mutedCount > 0 && <span>· {mutedCount} 🔇</span>}
+            {suspectCount > 0 && <span>· {suspectCount} ⚠️</span>}
             {notifMode !== "priority" && <span>· notif: {notifMode}</span>}
             <span style={{ color: "var(--text-3)", marginLeft: 2 }}>edit</span>
           </button>
-        )}
+          );
+        })()}
         {viewMode === "history" && (
           <div style={{
             display: "inline-flex", alignItems: "center", gap: 6, marginTop: 10,
@@ -1007,6 +1400,11 @@ function App() {
                     onToggle={() => setExpandedId(expandedId === d.id ? null : d.id)}
                     onDismiss={() => setDismissed(d.id, true)}
                     mode="live"
+                    classification={getClassification(birdLabel(d), classifications)}
+                    onSetClassification={(label, state) => {
+                      setClassifications(prev => ({ ...prev, [label]: state }));
+                    }}
+                    onSetManualLabel={setManualLabel}
                   />
                 ))}
                 {liveItems.length > 50 && (
@@ -1062,6 +1460,7 @@ function App() {
                           onToggle={() => setExpandedId(expandedId === d.id ? null : d.id)}
                           onRestore={() => setDismissed(d.id, false)}
                           mode="history"
+                          classification={getClassification(birdLabel(d), classifications)}
                         />
                       ))}
                     </div>
@@ -1080,7 +1479,7 @@ function App() {
         viewFilter={viewFilter} setViewFilter={setViewFilter}
         notifMode={notifMode} setNotifMode={setNotifMode}
         confThreshold={confThreshold} setConfThreshold={setConfThreshold}
-        muted={muted} setMuted={setMuted}
+        classifications={classifications} setClassifications={setClassifications}
         allSeenSpecies={speciesByLabel}
         notifPerm={notifPerm} requestNotif={requestNotif}
       />
