@@ -97,10 +97,17 @@ const SUPA_HEADERS = {
 };
 
 // ─── Audio server config ────────────────────────────────────────────
-// The Pi runs a small HTTP server on port 8080 that streams clips and
+// The Pi runs a small HTTP server on port 8090 that streams clips and
 // accepts /promote requests for moving clips into the training corpus.
+// Port 8090 (not 8080) because solar-hub-pi/bridge.py owns 8080.
 // Only reachable from the same network as the Pi (home wifi).
 const PI_AUDIO_BASE = "http://eaglecam.local:8090";
+
+// ─── App version ────────────────────────────────────────────────────
+// Bump on every deploy. Visible in the footer so we know which build is
+// running when investigating bug reports or screenshots.
+const APP_VERSION = "v5.0";
+const APP_VERSION_DATE = "2026-05-11";
 
 // ─── Default priority list (seed) ───────────────────────────────────
 // In v4 the user's classification (priority/normal/suspect/muted) lives
@@ -258,9 +265,29 @@ function isSuspect(d, classifications) {
   return getClassification(label, classifications) === "suspect";
 }
 
+// True if the user has manually relabelled this detection AND the new label
+// is different from BirdNET's original guess. We compare on the common-name
+// portion (label has form "CommonName_ScientificName" or just "CommonName").
+// This is what drives the green ✓ "corrected" badge on the card.
+function isCorrected(d) {
+  const meta = d.metadata || {};
+  const manual = (meta.manual_label || "").trim();
+  if (!manual) return false;
+  const original = (d.species_guess || "").trim();
+  if (!original) return manual.length > 0;  // no original to compare, treat as touched
+  // Case-insensitive compare. If user typed back the same species (confirmation,
+  // not correction) we DON'T flag it - the badge means "different from BirdNET".
+  return manual.toLowerCase() !== original.toLowerCase();
+}
+
 // Date-bucket label for the History page grouping.
 // Boundaries are based on local-time calendar dates (not strict 24h windows)
 // so "Today" means today's date, "Yesterday" means yesterday's date, etc.
+//   Today:      today's calendar date
+//   Yesterday:  yesterday's calendar date
+//   This week:  within last 7 days, excluding today/yesterday
+//   This month: within last 30 days, excluding the above
+//   Older:      anything older than 30 days
 function historyBucket(ts) {
   const then = new Date(ts);
   const now = new Date();
@@ -274,14 +301,48 @@ function historyBucket(ts) {
   yest.setDate(yest.getDate() - 1);
   const weekAgo = new Date(today);
   weekAgo.setDate(weekAgo.getDate() - 7);
+  const monthAgo = new Date(today);
+  monthAgo.setDate(monthAgo.getDate() - 30);
 
   const tDay = startOfDay(then);
   if (tDay.getTime() === today.getTime()) return "Today";
   if (tDay.getTime() === yest.getTime()) return "Yesterday";
   if (tDay.getTime() >= weekAgo.getTime()) return "This week";
+  if (tDay.getTime() >= monthAgo.getTime()) return "This month";
   return "Older";
 }
-const HISTORY_BUCKET_ORDER = ["Today", "Yesterday", "This week", "Older"];
+const HISTORY_BUCKET_ORDER = ["Today", "Yesterday", "This week", "This month", "Older"];
+
+// Time-range bounds for each history bucket (as ISO strings, UTC).
+// Used to build Supabase queries that fetch one bucket at a time.
+// Returns { gte, lt } where: created_at >= gte AND created_at < lt
+// Same calendar-day logic as historyBucket() above.
+function historyBucketRange(bucket) {
+  const now = new Date();
+  const startOfDay = (d) => {
+    const x = new Date(d);
+    x.setHours(0, 0, 0, 0);
+    return x;
+  };
+  const today = startOfDay(now);
+  const tomorrow = new Date(today);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  const yest = new Date(today);
+  yest.setDate(yest.getDate() - 1);
+  const weekAgo = new Date(today);
+  weekAgo.setDate(weekAgo.getDate() - 7);
+  const monthAgo = new Date(today);
+  monthAgo.setDate(monthAgo.getDate() - 30);
+
+  switch (bucket) {
+    case "Today":      return { gte: today.toISOString(),     lt: tomorrow.toISOString() };
+    case "Yesterday":  return { gte: yest.toISOString(),      lt: today.toISOString() };
+    case "This week":  return { gte: weekAgo.toISOString(),   lt: yest.toISOString() };
+    case "This month": return { gte: monthAgo.toISOString(),  lt: weekAgo.toISOString() };
+    case "Older":      return { gte: null,                    lt: monthAgo.toISOString() };
+    default:           return { gte: null, lt: null };
+  }
+}
 
 function fmtAge(ts) {
   if (!ts) return "";
@@ -631,6 +692,9 @@ function DetectionCard({ d, expanded, onToggle, onDismiss, onRestore, mode,
   const isPriorityCls = classification === "priority";
   const isSuspectCls  = classification === "suspect";
 
+  // v5: user has supplied a correction (manual_label differs from species_guess)
+  const corrected = isCorrected(d);
+
   // v3: regional plausibility
   const regionFlagged = meta.region_match === false;
   const regionCount = typeof meta.region_count === "number" ? meta.region_count : null;
@@ -687,6 +751,7 @@ function DetectionCard({ d, expanded, onToggle, onDismiss, onRestore, mode,
   return (
     <div onClick={onToggle}
       style={{
+        position: "relative",
         background: "var(--surface)",
         border: "1px solid " + borderColor,
         borderLeft,
@@ -696,6 +761,27 @@ function DetectionCard({ d, expanded, onToggle, onDismiss, onRestore, mode,
         boxShadow: "var(--shadow)",
         opacity: mode === "history" ? 0.85 : 1,
       }}>
+
+      {/* v5: Corrected badge. Shows in both live and history modes when the
+          user has supplied a manual_label that differs from species_guess.
+          Sits absolutely-positioned in the top-right corner so scanning a
+          list of cards picks it out at a glance. */}
+      {corrected && (
+        <div
+          title={`You corrected this to: ${meta.manual_label}`}
+          aria-label={`Corrected to ${meta.manual_label}`}
+          style={{
+            position: "absolute", top: 8, right: 8,
+            width: 22, height: 22, borderRadius: "50%",
+            background: "var(--success)",
+            color: "#fff",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            fontSize: 13, fontWeight: 700, lineHeight: 1,
+            boxShadow: "0 1px 2px rgba(21, 128, 61, 0.35)",
+            zIndex: 2,
+          }}
+        >✓</div>
+      )}
 
       {/* Suspect banner takes priority over region banner. Both are yellow but
           carry slightly different messages. */}
@@ -1019,17 +1105,65 @@ function App() {
     return () => clearInterval(iv);
   }, []);
 
-  // Fetch detections from Supabase. We keep `classifications` out of the
-  // deps array (and read it via a ref) so that flipping a per-species
-  // classification doesn't tear down and recreate the polling interval.
+  // ─── Data layer: live window + history buckets ─────────────────────
+  //
+  // We split data into two scopes:
+  //   1. LIVE WINDOW: last 24 hours. Pulled every 20s. Includes both
+  //      dismissed and non-dismissed rows. The live feed shows the
+  //      non-dismissed subset; the History "Today" bucket shows the
+  //      dismissed subset of this same data, so dismissing a card today
+  //      makes it appear in "Today" instantly with no extra fetch.
+  //   2. HISTORY BUCKETS (Yesterday / This week / This month / Older):
+  //      lazy-loaded. Not fetched until the user expands the bucket.
+  //      Cached for the session after first load.
+  //
+  // This is the v5 fix for the limit=100 problem: in v4 we asked for the
+  // last 100 rows regardless of age, so high detection volume pushed
+  // older dismissed rows out of the response before they reached the
+  // client. Now the live query is time-bounded, and history queries are
+  // bucket-bounded.
+
+  // History bucket cache. Keyed by bucket name. Each entry:
+  //   { items: [...], loading: bool, loaded: bool, error: string|null }
+  // "loaded" distinguishes "we tried and got zero results" from "we
+  // haven't tried yet".
+  const [historyBuckets, setHistoryBuckets] = useState({});
+
+  // Which history buckets are expanded. Today is expanded by default
+  // (it auto-fills from the live window). Others wait for user tap.
+  const [expandedBuckets, setExpandedBuckets] = useState(() => ({
+    "Today": true,
+    "Yesterday": false,
+    "This week": false,
+    "This month": false,
+    "Older": false,
+  }));
+
+  // History classification filter: which classifications to show.
+  // Defaults to all three visible classifications. Muted is excluded
+  // entirely from history (it's noise).
+  const [historyClsFilter, setHistoryClsFilter] = useState({
+    priority: true,
+    suspect: true,
+    normal: true,
+  });
+
+  // Refs for callbacks that should not re-create the polling interval
   const classificationsRef = useRef(classifications);
   useEffect(() => { classificationsRef.current = classifications; }, [classifications]);
 
-  const fetchDetections = useCallback(async () => {
+  // Fetch the live 24-hour window. Includes dismissed and non-dismissed
+  // so the "Today" bucket of history is populated for free. Returns
+  // newest-first, capped at 500 rows as a safety net (24h × ~10/h ≈ 240
+  // typical, but storms can spike).
+  const fetchLive = useCallback(async () => {
     try {
+      const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
       const r = await fetch(
-        `${SUPA_URL}/rest/v1/candidate_sightings?source=eq.bird_detection&order=created_at.desc&limit=100`,
-        { headers: { ...SUPA_HEADERS, "Range": "0-99" } }
+        `${SUPA_URL}/rest/v1/candidate_sightings?source=eq.bird_detection`
+          + `&created_at=gte.${encodeURIComponent(cutoff)}`
+          + `&order=created_at.desc&limit=500`,
+        { headers: SUPA_HEADERS }
       );
       if (!r.ok) {
         setError(`Couldn't load detections (${r.status})`);
@@ -1080,12 +1214,66 @@ function App() {
   }, [notifPerm, confThreshold, notifMode]);
 
   useEffect(() => {
-    fetchDetections();
-    const iv = setInterval(fetchDetections, 20000);
+    fetchLive();
+    const iv = setInterval(fetchLive, 20000);
     return () => clearInterval(iv);
-  }, [fetchDetections]);
+  }, [fetchLive]);
 
-  // Live-view list: not dismissed, passes confidence + classification, passes filter.
+  // Fetch one history bucket from Supabase. Yesterday / This week /
+  // This month / Older. Only dismissed rows are pulled — non-dismissed
+  // older items would mean something weird is happening (live feed
+  // should keep them visible until age >= 24h, at which point they're
+  // dismissed-or-not in the older buckets, but we treat the older
+  // buckets as "the archive" so we include both states there).
+  //
+  // Actually, important: an item more than 24h old that the user never
+  // dismissed should STILL appear in history (otherwise it falls into
+  // a gap between live and history). So we don't filter by dismissed
+  // for buckets older than Today — we include everything in the range.
+  const fetchHistoryBucket = useCallback(async (bucket) => {
+    setHistoryBuckets(prev => ({
+      ...prev,
+      [bucket]: { items: prev[bucket]?.items || [], loading: true, loaded: false, error: null },
+    }));
+    try {
+      const { gte, lt } = historyBucketRange(bucket);
+      let q = `${SUPA_URL}/rest/v1/candidate_sightings?source=eq.bird_detection`;
+      if (gte) q += `&created_at=gte.${encodeURIComponent(gte)}`;
+      if (lt)  q += `&created_at=lt.${encodeURIComponent(lt)}`;
+      q += `&order=created_at.desc&limit=1000`;
+      const r = await fetch(q, { headers: SUPA_HEADERS });
+      if (!r.ok) {
+        setHistoryBuckets(prev => ({
+          ...prev,
+          [bucket]: { items: [], loading: false, loaded: false, error: `HTTP ${r.status}` },
+        }));
+        return;
+      }
+      const data = await r.json();
+      setHistoryBuckets(prev => ({
+        ...prev,
+        [bucket]: { items: data || [], loading: false, loaded: true, error: null },
+      }));
+    } catch (e) {
+      setHistoryBuckets(prev => ({
+        ...prev,
+        [bucket]: { items: [], loading: false, loaded: false, error: "Network error" },
+      }));
+    }
+  }, []);
+
+  // Auto-fetch buckets as the user expands them. Today doesn't need
+  // its own fetch — it's derived from the live window.
+  useEffect(() => {
+    for (const bucket of ["Yesterday", "This week", "This month", "Older"]) {
+      if (expandedBuckets[bucket] && !historyBuckets[bucket]?.loaded && !historyBuckets[bucket]?.loading) {
+        fetchHistoryBucket(bucket);
+      }
+    }
+  }, [expandedBuckets, historyBuckets, fetchHistoryBucket]);
+
+  // Live-view list: from the 24h window, non-dismissed, passes confidence
+  // + classification, passes filter.
   // Sorted: priority first, then suspect, then normal, by recency within each group.
   const liveItems = useMemo(() => {
     const items = detections.filter(d => {
@@ -1110,22 +1298,54 @@ function App() {
     return items;
   }, [detections, viewFilter, confThreshold, classifications]);
 
-  // History-view list: dismissed only, grouped by date bucket.
-  // Returns an array of { bucket, items } in the order Today/Yesterday/...
-  const historyGroups = useMemo(() => {
-    const dismissed = detections
-      .filter(d => d.dismissed)
+  // Helper: shared filter applied to history items.
+  // - Muted species are always excluded from history
+  // - The historyClsFilter chips decide which of priority/suspect/normal show
+  const filterHistoryItems = useCallback((items) => {
+    return items.filter(d => {
+      const label = birdLabel(d);
+      const cls = getClassification(label, classifications);
+      if (cls === "muted") return false;
+      if (cls === "priority" && !historyClsFilter.priority) return false;
+      if (cls === "suspect"  && !historyClsFilter.suspect)  return false;
+      if (cls === "normal"   && !historyClsFilter.normal)   return false;
+      return true;
+    });
+  }, [classifications, historyClsFilter]);
+
+  // History "Today" bucket: derived from the live window (already in memory).
+  // Mixes dismissed AND non-dismissed today's items so that everything
+  // detected today is visible in history, but the live feed is the better
+  // place to interact with non-dismissed today items. We could choose to
+  // show only dismissed-today here, but that creates the dead-zone
+  // "what happened today that I haven't actioned" question. Showing all
+  // of today is more useful. The live-feed-vs-history difference is then:
+  // history is the archive view, live is the action view.
+  const todayItems = useMemo(() => {
+    const { gte, lt } = historyBucketRange("Today");
+    const filtered = detections.filter(d => {
+      const t = d.created_at;
+      return t >= gte && t < lt;
+    });
+    return filterHistoryItems(filtered)
       .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-    const byBucket = new Map();
-    for (const d of dismissed) {
-      const b = historyBucket(d.created_at);
-      if (!byBucket.has(b)) byBucket.set(b, []);
-      byBucket.get(b).push(d);
+  }, [detections, filterHistoryItems]);
+
+  // Counts for each history bucket (for the header chips).
+  // Today comes from local data. Others come from the bucket cache once
+  // loaded (we show "—" until they've been fetched).
+  const bucketCounts = useMemo(() => {
+    const out = { "Today": todayItems.length };
+    for (const b of ["Yesterday", "This week", "This month", "Older"]) {
+      const entry = historyBuckets[b];
+      if (entry?.loaded) {
+        out[b] = filterHistoryItems(entry.items).length;
+      } else {
+        out[b] = null;  // unknown until loaded
+      }
     }
-    return HISTORY_BUCKET_ORDER
-      .filter(b => byBucket.has(b))
-      .map(b => ({ bucket: b, items: byBucket.get(b) }));
-  }, [detections]);
+    return out;
+  }, [todayItems, historyBuckets, filterHistoryItems]);
 
   // Total count of items hidden by the current live filter (for the
   // "X hidden by current filter" notice)
@@ -1136,10 +1356,11 @@ function App() {
   }, [detections, liveItems, viewMode]);
 
   // Species summary - one row per species, used both in feed grouping and
-  // in the settings classification list.
+  // in the settings classification list. Built from the live (24h) window
+  // only; older species require checking the History view to find.
   const speciesByLabel = useMemo(() => {
     const m = new Map();
-    for (const d of detections) {  // use unfiltered list so settings sees everything
+    for (const d of detections) {  // use unfiltered list so settings sees everything in window
       const label = birdLabel(d);
       const e = m.get(label) || {
         label, common: d.species_guess, count: 0, latestTs: null, maxConf: 0,
@@ -1280,7 +1501,7 @@ function App() {
             </div>
           </div>
           <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
-            <button onClick={fetchDetections} aria-label="Refresh"
+            <button onClick={fetchLive} aria-label="Refresh"
               style={{
                 width: 40, height: 40, borderRadius: "50%", border: "none",
                 background: "var(--surface)", color: "var(--text-2)",
@@ -1352,7 +1573,7 @@ function App() {
         {/* ─── LIVE VIEW ─────────────────────────────────────────────── */}
         {viewMode === "live" && (
           <>
-            {/* Empty state */}
+            {/* Empty state - no detections in the live 24h window */}
             {!loading && detections.length === 0 && !error && (
               <div style={{
                 textAlign: "center", padding: "60px 20px",
@@ -1363,9 +1584,15 @@ function App() {
                   Listening for birds
                 </h2>
                 <p style={{ fontSize: 14, lineHeight: 1.5, maxWidth: 320, margin: "0 auto" }}>
-                  Detections from your microphone will appear here. The Pi posts a new
-                  entry whenever BirdNET hears a bird above your confidence threshold.
+                  Nothing detected in the last 24 hours. New detections appear here;
+                  older ones live in History.
                 </p>
+                <button onClick={() => setViewMode("history")} style={{
+                  marginTop: 16, padding: "8px 14px",
+                  background: "transparent", color: "var(--primary)",
+                  border: "1px solid var(--border)", borderRadius: "var(--r-md)",
+                  fontSize: 13, fontWeight: 600, cursor: "pointer",
+                }}>Open History</button>
               </div>
             )}
 
@@ -1421,56 +1648,180 @@ function App() {
         {/* ─── HISTORY VIEW ──────────────────────────────────────────── */}
         {viewMode === "history" && (
           <>
-            {historyGroups.length === 0 ? (
-              <div style={{
-                textAlign: "center", padding: "60px 20px",
-                color: "var(--text-2)",
-              }}>
-                <div style={{ fontSize: 56, marginBottom: 16, opacity: 0.4 }}>🗂</div>
-                <h2 style={{ fontSize: 18, fontWeight: 600, color: "var(--text)", marginBottom: 8 }}>
-                  No cleared detections
-                </h2>
-                <p style={{ fontSize: 14, lineHeight: 1.5, maxWidth: 320, margin: "0 auto" }}>
-                  When you clear a detection from the live feed, it'll show up here so
-                  you can recover it if needed.
-                </p>
-                <button onClick={() => setViewMode("live")} style={{
-                  marginTop: 20, padding: "10px 16px",
-                  background: "var(--primary)", color: "#fff",
-                  border: "none", borderRadius: "var(--r-md)", fontSize: 14,
-                  fontWeight: 600, cursor: "pointer",
-                }}>Back to live</button>
-              </div>
-            ) : (
-              <div style={{ display: "flex", flexDirection: "column", gap: 16, marginTop: 8 }}>
-                {historyGroups.map(({ bucket, items }) => (
-                  <section key={bucket}>
-                    <h2 style={{
-                      fontSize: 11, fontWeight: 700, color: "var(--text-3)",
-                      letterSpacing: 0.8, textTransform: "uppercase",
-                      marginBottom: 8, paddingLeft: 4,
+            {/* Classification filter chips. Toggle which states are shown
+                across all buckets. Muted is excluded by design. */}
+            <div style={{
+              display: "flex", gap: 6, marginTop: 8, marginBottom: 8,
+              flexWrap: "wrap",
+            }}>
+              <span style={{
+                alignSelf: "center", fontSize: 11, color: "var(--text-3)",
+                fontWeight: 600, letterSpacing: 0.5, textTransform: "uppercase",
+                marginRight: 4,
+              }}>Show</span>
+              {[
+                { key: "priority", icon: "⭐", label: "Priority", color: "var(--accent)" },
+                { key: "suspect",  icon: "⚠️", label: "Suspect",  color: "#ca8a04" },
+                { key: "normal",   icon: "○",  label: "Normal",   color: "var(--text-2)" },
+              ].map(c => {
+                const active = historyClsFilter[c.key];
+                return (
+                  <button key={c.key}
+                    onClick={() => setHistoryClsFilter(prev => ({
+                      ...prev, [c.key]: !prev[c.key]
+                    }))}
+                    style={{
+                      display: "inline-flex", alignItems: "center", gap: 5,
+                      padding: "5px 11px", borderRadius: 999,
+                      background: active ? c.color : "var(--surface)",
+                      color: active ? "#fff" : "var(--text-2)",
+                      border: "1px solid " + (active ? c.color : "var(--border)"),
+                      fontSize: 12, fontWeight: 600, cursor: "pointer",
+                      opacity: active ? 1 : 0.7,
                     }}>
-                      {bucket} <span style={{ color: "var(--text-3)", opacity: 0.7 }}>· {items.length}</span>
-                    </h2>
-                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                      {items.map(d => (
-                        <DetectionCard
-                          key={d.id} d={d}
-                          expanded={expandedId === d.id}
-                          onToggle={() => setExpandedId(expandedId === d.id ? null : d.id)}
-                          onRestore={() => setDismissed(d.id, false)}
-                          mode="history"
-                          classification={getClassification(birdLabel(d), classifications)}
-                        />
-                      ))}
-                    </div>
+                    <span>{c.icon}</span>
+                    <span>{c.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Bucket sections. Each renders as a collapsible header
+                showing the count, then (when expanded) the cards. */}
+            <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 4 }}>
+              {HISTORY_BUCKET_ORDER.map(bucket => {
+                const isToday = bucket === "Today";
+                const expanded = !!expandedBuckets[bucket];
+                const entry = historyBuckets[bucket];
+                const loading = !isToday && entry?.loading;
+                const loadError = !isToday && entry?.error;
+                const rawItems = isToday
+                  ? todayItems
+                  : (entry?.loaded ? filterHistoryItems(entry.items) : []);
+                // Re-sort just to be safe (filter preserves order, but
+                // we want guarantees)
+                const items = rawItems.slice().sort(
+                  (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+                );
+                const count = bucketCounts[bucket];
+
+                return (
+                  <section key={bucket} style={{
+                    border: "1px solid var(--border)",
+                    borderRadius: "var(--r-md)",
+                    background: "var(--surface)",
+                    overflow: "hidden",
+                  }}>
+                    <button
+                      onClick={() => setExpandedBuckets(prev => ({
+                        ...prev, [bucket]: !prev[bucket]
+                      }))}
+                      style={{
+                        width: "100%", display: "flex",
+                        alignItems: "center", gap: 8,
+                        padding: "12px 14px",
+                        background: "transparent",
+                        border: "none", cursor: "pointer", textAlign: "left",
+                      }}>
+                      <span style={{
+                        display: "inline-block", width: 14, fontSize: 11,
+                        color: "var(--text-2)",
+                        transform: expanded ? "rotate(90deg)" : "rotate(0deg)",
+                        transition: "transform 0.15s ease",
+                      }}>▶</span>
+                      <span style={{
+                        fontSize: 13, fontWeight: 700, color: "var(--text)",
+                        letterSpacing: 0.3,
+                      }}>{bucket}</span>
+                      <span style={{
+                        fontSize: 12, color: "var(--text-3)", marginLeft: "auto",
+                      }}>
+                        {loading
+                          ? "loading…"
+                          : loadError
+                            ? `error: ${loadError}`
+                            : count === null
+                              ? (expanded ? "" : "tap to load")
+                              : `${count}`
+                        }
+                      </span>
+                    </button>
+                    {expanded && (
+                      <div style={{
+                        padding: "0 10px 12px",
+                        borderTop: "1px solid var(--border)",
+                      }}>
+                        {loading && (
+                          <div style={{
+                            padding: "20px 6px", fontSize: 13,
+                            color: "var(--text-3)", textAlign: "center",
+                          }}>Loading…</div>
+                        )}
+                        {!loading && loadError && (
+                          <div style={{
+                            padding: "16px 6px", fontSize: 13,
+                            color: "var(--danger)", textAlign: "center",
+                          }}>
+                            {loadError}.{" "}
+                            <button
+                              onClick={() => fetchHistoryBucket(bucket)}
+                              style={{
+                                background: "transparent", border: "none",
+                                color: "var(--primary)", cursor: "pointer",
+                                textDecoration: "underline", fontSize: 13,
+                              }}
+                            >Try again</button>
+                          </div>
+                        )}
+                        {!loading && !loadError && items.length === 0 && (
+                          <div style={{
+                            padding: "16px 6px", fontSize: 13,
+                            color: "var(--text-3)", textAlign: "center",
+                          }}>
+                            {isToday || entry?.loaded
+                              ? "Nothing in this bucket."
+                              : "Not loaded yet."}
+                          </div>
+                        )}
+                        {!loading && !loadError && items.length > 0 && (
+                          <div style={{
+                            display: "flex", flexDirection: "column", gap: 6,
+                            paddingTop: 8,
+                          }}>
+                            {items.map(d => (
+                              <DetectionCard
+                                key={d.id} d={d}
+                                expanded={expandedId === d.id}
+                                onToggle={() => setExpandedId(expandedId === d.id ? null : d.id)}
+                                onRestore={!d.dismissed ? undefined : () => setDismissed(d.id, false)}
+                                mode="history"
+                                classification={getClassification(birdLabel(d), classifications)}
+                                onSetManualLabel={setManualLabel}
+                              />
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </section>
-                ))}
-              </div>
-            )}
+                );
+              })}
+            </div>
           </>
         )}
       </main>
+
+      {/* Version stamp footer. Bumped on each deploy so we can tell which
+          build is running when investigating issues. */}
+      <footer style={{
+        padding: "12px 16px calc(env(safe-area-inset-bottom, 0px) + 16px)",
+        textAlign: "center",
+        fontSize: 11,
+        color: "var(--text-3)",
+        opacity: 0.7,
+      }}>
+        Bird Call Alert · {APP_VERSION} · {APP_VERSION_DATE}
+      </footer>
 
       {/* Settings sheet */}
       <SettingsSheet
