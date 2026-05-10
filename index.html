@@ -498,24 +498,65 @@ function DetectionCard({ d, expanded, onToggle, onDismiss, onRestore, mode }) {
   const priority = PRIORITY_SPECIES.has(label);
   const conf = Math.round((d.confidence || 0) * 100);
 
+  // v3: regional plausibility. region_match is set Pi-side from the eBird
+  // 10km list. Three states:
+  //   true  -> species recorded within 10km of home, plausible
+  //   false -> species NOT recorded within 10km, flagged as likely misID
+  //   null/undefined -> region data wasn't available (older rows, or Pi
+  //                     didn't load the JSON), don't claim anything either way
+  const regionFlagged = meta.region_match === false;
+  const regionCount = typeof meta.region_count === "number" ? meta.region_count : null;
+
   // Stop propagation so action button clicks don't toggle the card
   function handleAction(e, fn) {
     e.stopPropagation();
     fn?.();
   }
 
+  // Border styling: priority orange wins over yellow flag (priority is
+  // a stronger signal of relevance). Otherwise yellow when flagged.
+  let borderColor = "var(--border)";
+  let borderLeft = "1px solid var(--border)";
+  if (priority && mode === "live") {
+    borderColor = "rgba(217, 119, 6, 0.35)";
+    borderLeft = "4px solid var(--accent)";
+  } else if (regionFlagged && mode === "live") {
+    borderColor = "rgba(202, 138, 4, 0.45)";  // amber/yellow
+    borderLeft = "4px solid #ca8a04";
+  }
+
   return (
     <div onClick={onToggle}
       style={{
         background: "var(--surface)",
-        border: "1px solid " + (priority && mode === "live" ? "rgba(217, 119, 6, 0.35)" : "var(--border)"),
-        borderLeft: priority && mode === "live" ? "4px solid var(--accent)" : "1px solid var(--border)",
+        border: "1px solid " + borderColor,
+        borderLeft,
         borderRadius: "var(--r-md)",
         padding: "14px 16px",
         cursor: "pointer",
         boxShadow: "var(--shadow)",
         opacity: mode === "history" ? 0.85 : 1,
       }}>
+
+      {/* v3: yellow banner for region-implausible detections */}
+      {regionFlagged && mode === "live" && (
+        <div style={{
+          display: "flex", alignItems: "center", gap: 8,
+          margin: "-2px -4px 10px",
+          padding: "8px 10px",
+          background: "rgba(254, 243, 199, 0.85)",  // soft amber bg
+          border: "1px solid rgba(202, 138, 4, 0.35)",
+          borderRadius: "var(--r-sm)",
+          fontSize: 12, color: "#854d0e", lineHeight: 1.35,
+        }}>
+          <span style={{ fontSize: 16, lineHeight: 1 }}>⚠️</span>
+          <span style={{ flex: 1 }}>
+            <strong>Likely misidentified</strong> — not recorded within 10km of your home in eBird data.
+            {" "}The actual sound may be a different species worth investigating.
+          </span>
+        </div>
+      )}
+
       <div style={{ display: "flex", alignItems: "flex-start",
           justifyContent: "space-between", gap: 12 }}>
         <div style={{ flex: 1, minWidth: 0 }}>
@@ -589,13 +630,22 @@ function DetectionCard({ d, expanded, onToggle, onDismiss, onRestore, mode }) {
             { l: "Window", v: meta.start_time_secs != null
                 ? `${meta.start_time_secs.toFixed(1)}–${(meta.end_time_secs || 0).toFixed(1)}s`
                 : "—" },
+            ...(meta.region_match !== undefined ? [{
+              l: "10km eBird records",
+              v: regionFlagged
+                ? "Not recorded within 10km"
+                : (regionCount ? `${regionCount.toLocaleString()} sighting${regionCount === 1 ? "" : "s"}` : "Plausible"),
+              span: true,
+            }] : []),
           ].map(x => (
             <div key={x.l} style={{ background: "var(--surface-2)",
-                borderRadius: "var(--r-sm)", padding: "8px 10px" }}>
+                borderRadius: "var(--r-sm)", padding: "8px 10px",
+                gridColumn: x.span ? "1 / -1" : "auto" }}>
               <div style={{ fontSize: 10, color: "var(--text-3)",
                   fontWeight: 600, letterSpacing: 0.5,
                   textTransform: "uppercase", marginBottom: 2 }}>{x.l}</div>
-              <div style={{ fontSize: 13, color: "var(--text)",
+              <div style={{ fontSize: 13,
+                  color: x.l === "10km eBird records" && regionFlagged ? "#854d0e" : "var(--text)",
                   fontWeight: 500 }}>{x.v}</div>
             </div>
           ))}

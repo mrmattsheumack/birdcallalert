@@ -1,0 +1,2078 @@
+{
+  "_metadata": {
+    "source": "eBird Basic Dataset, Mornington Peninsula (AU-VIC-MPE), Jan 2026 release",
+    "filter_center_lat": -38.342222,
+    "filter_center_lon": 144.963722,
+    "filter_radius_km": 10.0,
+    "total_observations_in_radius": 58514,
+    "unique_species_in_radius": 206,
+    "categories_excluded": [
+      "spuh",
+      "slash",
+      "hybrid",
+      "domestic"
+    ]
+  },
+  "species": {
+    "nankeen kestrel": {
+      "common": "Nankeen Kestrel",
+      "scientific": "Falco cenchroides",
+      "count": 127
+    },
+    "falco cenchroides": {
+      "common": "Nankeen Kestrel",
+      "scientific": "Falco cenchroides",
+      "count": 127
+    },
+    "australian magpie": {
+      "common": "Australian Magpie",
+      "scientific": "Gymnorhina tibicen",
+      "count": 2134
+    },
+    "gymnorhina tibicen": {
+      "common": "Australian Magpie",
+      "scientific": "Gymnorhina tibicen",
+      "count": 2134
+    },
+    "australian shelduck": {
+      "common": "Australian Shelduck",
+      "scientific": "Tadorna tadornoides",
+      "count": 31
+    },
+    "tadorna tadornoides": {
+      "common": "Australian Shelduck",
+      "scientific": "Tadorna tadornoides",
+      "count": 31
+    },
+    "black-faced cuckooshrike": {
+      "common": "Black-faced Cuckooshrike",
+      "scientific": "Coracina novaehollandiae",
+      "count": 272
+    },
+    "coracina novaehollandiae": {
+      "common": "Black-faced Cuckooshrike",
+      "scientific": "Coracina novaehollandiae",
+      "count": 272
+    },
+    "black swan": {
+      "common": "Black Swan",
+      "scientific": "Cygnus atratus",
+      "count": 351
+    },
+    "cygnus atratus": {
+      "common": "Black Swan",
+      "scientific": "Cygnus atratus",
+      "count": 351
+    },
+    "brown-headed honeyeater": {
+      "common": "Brown-headed Honeyeater",
+      "scientific": "Melithreptus brevirostris",
+      "count": 79
+    },
+    "melithreptus brevirostris": {
+      "common": "Brown-headed Honeyeater",
+      "scientific": "Melithreptus brevirostris",
+      "count": 79
+    },
+    "brown thornbill": {
+      "common": "Brown Thornbill",
+      "scientific": "Acanthiza pusilla",
+      "count": 1571
+    },
+    "acanthiza pusilla": {
+      "common": "Brown Thornbill",
+      "scientific": "Acanthiza pusilla",
+      "count": 1571
+    },
+    "crescent honeyeater": {
+      "common": "Crescent Honeyeater",
+      "scientific": "Phylidonyris pyrrhopterus",
+      "count": 245
+    },
+    "phylidonyris pyrrhopterus": {
+      "common": "Crescent Honeyeater",
+      "scientific": "Phylidonyris pyrrhopterus",
+      "count": 245
+    },
+    "curlew sandpiper": {
+      "common": "Curlew Sandpiper",
+      "scientific": "Calidris ferruginea",
+      "count": 1
+    },
+    "calidris ferruginea": {
+      "common": "Curlew Sandpiper",
+      "scientific": "Calidris ferruginea",
+      "count": 1
+    },
+    "dusky woodswallow": {
+      "common": "Dusky Woodswallow",
+      "scientific": "Artamus cyanopterus",
+      "count": 84
+    },
+    "artamus cyanopterus": {
+      "common": "Dusky Woodswallow",
+      "scientific": "Artamus cyanopterus",
+      "count": 84
+    },
+    "eastern spinebill": {
+      "common": "Eastern Spinebill",
+      "scientific": "Acanthorhynchus tenuirostris",
+      "count": 808
+    },
+    "acanthorhynchus tenuirostris": {
+      "common": "Eastern Spinebill",
+      "scientific": "Acanthorhynchus tenuirostris",
+      "count": 808
+    },
+    "far eastern curlew": {
+      "common": "Far Eastern Curlew",
+      "scientific": "Numenius madagascariensis",
+      "count": 2
+    },
+    "numenius madagascariensis": {
+      "common": "Far Eastern Curlew",
+      "scientific": "Numenius madagascariensis",
+      "count": 2
+    },
+    "fan-tailed cuckoo": {
+      "common": "Fan-tailed Cuckoo",
+      "scientific": "Cacomantis flabelliformis",
+      "count": 191
+    },
+    "cacomantis flabelliformis": {
+      "common": "Fan-tailed Cuckoo",
+      "scientific": "Cacomantis flabelliformis",
+      "count": 191
+    },
+    "great crested tern": {
+      "common": "Great Crested Tern",
+      "scientific": "Thalasseus bergii",
+      "count": 186
+    },
+    "thalasseus bergii": {
+      "common": "Great Crested Tern",
+      "scientific": "Thalasseus bergii",
+      "count": 186
+    },
+    "gray currawong": {
+      "common": "Gray Currawong",
+      "scientific": "Strepera versicolor",
+      "count": 164
+    },
+    "strepera versicolor": {
+      "common": "Gray Currawong",
+      "scientific": "Strepera versicolor",
+      "count": 164
+    },
+    "gray fantail": {
+      "common": "Gray Fantail",
+      "scientific": "Rhipidura albiscapa",
+      "count": 1554
+    },
+    "rhipidura albiscapa": {
+      "common": "Gray Fantail",
+      "scientific": "Rhipidura albiscapa",
+      "count": 1554
+    },
+    "gray shrikethrush": {
+      "common": "Gray Shrikethrush",
+      "scientific": "Colluricincla harmonica",
+      "count": 952
+    },
+    "colluricincla harmonica": {
+      "common": "Gray Shrikethrush",
+      "scientific": "Colluricincla harmonica",
+      "count": 952
+    },
+    "jacky-winter": {
+      "common": "Jacky-winter",
+      "scientific": "Microeca fascinans",
+      "count": 3
+    },
+    "microeca fascinans": {
+      "common": "Jacky-winter",
+      "scientific": "Microeca fascinans",
+      "count": 3
+    },
+    "laughing kookaburra": {
+      "common": "Laughing Kookaburra",
+      "scientific": "Dacelo novaeguineae",
+      "count": 1121
+    },
+    "dacelo novaeguineae": {
+      "common": "Laughing Kookaburra",
+      "scientific": "Dacelo novaeguineae",
+      "count": 1121
+    },
+    "magpie-lark": {
+      "common": "Magpie-lark",
+      "scientific": "Grallina cyanoleuca",
+      "count": 1456
+    },
+    "grallina cyanoleuca": {
+      "common": "Magpie-lark",
+      "scientific": "Grallina cyanoleuca",
+      "count": 1456
+    },
+    "masked lapwing": {
+      "common": "Masked Lapwing",
+      "scientific": "Vanellus miles",
+      "count": 931
+    },
+    "vanellus miles": {
+      "common": "Masked Lapwing",
+      "scientific": "Vanellus miles",
+      "count": 931
+    },
+    "mistletoebird": {
+      "common": "Mistletoebird",
+      "scientific": "Dicaeum hirundinaceum",
+      "count": 149
+    },
+    "dicaeum hirundinaceum": {
+      "common": "Mistletoebird",
+      "scientific": "Dicaeum hirundinaceum",
+      "count": 149
+    },
+    "new holland honeyeater": {
+      "common": "New Holland Honeyeater",
+      "scientific": "Phylidonyris novaehollandiae",
+      "count": 428
+    },
+    "phylidonyris novaehollandiae": {
+      "common": "New Holland Honeyeater",
+      "scientific": "Phylidonyris novaehollandiae",
+      "count": 428
+    },
+    "noisy miner": {
+      "common": "Noisy Miner",
+      "scientific": "Manorina melanocephala",
+      "count": 1844
+    },
+    "manorina melanocephala": {
+      "common": "Noisy Miner",
+      "scientific": "Manorina melanocephala",
+      "count": 1844
+    },
+    "pacific gull": {
+      "common": "Pacific Gull",
+      "scientific": "Larus pacificus",
+      "count": 189
+    },
+    "larus pacificus": {
+      "common": "Pacific Gull",
+      "scientific": "Larus pacificus",
+      "count": 189
+    },
+    "red-browed firetail": {
+      "common": "Red-browed Firetail",
+      "scientific": "Neochmia temporalis",
+      "count": 260
+    },
+    "neochmia temporalis": {
+      "common": "Red-browed Firetail",
+      "scientific": "Neochmia temporalis",
+      "count": 260
+    },
+    "red wattlebird": {
+      "common": "Red Wattlebird",
+      "scientific": "Anthochaera carunculata",
+      "count": 1922
+    },
+    "anthochaera carunculata": {
+      "common": "Red Wattlebird",
+      "scientific": "Anthochaera carunculata",
+      "count": 1922
+    },
+    "restless flycatcher": {
+      "common": "Restless Flycatcher",
+      "scientific": "Myiagra inquieta",
+      "count": 3
+    },
+    "myiagra inquieta": {
+      "common": "Restless Flycatcher",
+      "scientific": "Myiagra inquieta",
+      "count": 3
+    },
+    "rufous whistler": {
+      "common": "Rufous Whistler",
+      "scientific": "Pachycephala rufiventris",
+      "count": 258
+    },
+    "pachycephala rufiventris": {
+      "common": "Rufous Whistler",
+      "scientific": "Pachycephala rufiventris",
+      "count": 258
+    },
+    "sacred kingfisher": {
+      "common": "Sacred Kingfisher",
+      "scientific": "Todiramphus sanctus",
+      "count": 24
+    },
+    "todiramphus sanctus": {
+      "common": "Sacred Kingfisher",
+      "scientific": "Todiramphus sanctus",
+      "count": 24
+    },
+    "shining bronze-cuckoo": {
+      "common": "Shining Bronze-Cuckoo",
+      "scientific": "Chalcites lucidus",
+      "count": 127
+    },
+    "chalcites lucidus": {
+      "common": "Shining Bronze-Cuckoo",
+      "scientific": "Chalcites lucidus",
+      "count": 127
+    },
+    "silver gull": {
+      "common": "Silver Gull",
+      "scientific": "Chroicocephalus novaehollandiae",
+      "count": 1404
+    },
+    "chroicocephalus novaehollandiae": {
+      "common": "Silver Gull",
+      "scientific": "Chroicocephalus novaehollandiae",
+      "count": 1404
+    },
+    "spotted pardalote": {
+      "common": "Spotted Pardalote",
+      "scientific": "Pardalotus punctatus",
+      "count": 736
+    },
+    "pardalotus punctatus": {
+      "common": "Spotted Pardalote",
+      "scientific": "Pardalotus punctatus",
+      "count": 736
+    },
+    "striated pardalote": {
+      "common": "Striated Pardalote",
+      "scientific": "Pardalotus striatus",
+      "count": 263
+    },
+    "pardalotus striatus": {
+      "common": "Striated Pardalote",
+      "scientific": "Pardalotus striatus",
+      "count": 263
+    },
+    "striated thornbill": {
+      "common": "Striated Thornbill",
+      "scientific": "Acanthiza lineata",
+      "count": 446
+    },
+    "acanthiza lineata": {
+      "common": "Striated Thornbill",
+      "scientific": "Acanthiza lineata",
+      "count": 446
+    },
+    "superb fairywren": {
+      "common": "Superb Fairywren",
+      "scientific": "Malurus cyaneus",
+      "count": 1485
+    },
+    "malurus cyaneus": {
+      "common": "Superb Fairywren",
+      "scientific": "Malurus cyaneus",
+      "count": 1485
+    },
+    "varied sittella": {
+      "common": "Varied Sittella",
+      "scientific": "Daphoenositta chrysoptera",
+      "count": 100
+    },
+    "daphoenositta chrysoptera": {
+      "common": "Varied Sittella",
+      "scientific": "Daphoenositta chrysoptera",
+      "count": 100
+    },
+    "wedge-tailed eagle": {
+      "common": "Wedge-tailed Eagle",
+      "scientific": "Aquila audax",
+      "count": 165
+    },
+    "aquila audax": {
+      "common": "Wedge-tailed Eagle",
+      "scientific": "Aquila audax",
+      "count": 165
+    },
+    "white-browed scrubwren": {
+      "common": "White-browed Scrubwren",
+      "scientific": "Sericornis frontalis",
+      "count": 970
+    },
+    "sericornis frontalis": {
+      "common": "White-browed Scrubwren",
+      "scientific": "Sericornis frontalis",
+      "count": 970
+    },
+    "white-eared honeyeater": {
+      "common": "White-eared Honeyeater",
+      "scientific": "Nesoptilotis leucotis",
+      "count": 487
+    },
+    "nesoptilotis leucotis": {
+      "common": "White-eared Honeyeater",
+      "scientific": "Nesoptilotis leucotis",
+      "count": 487
+    },
+    "white-faced heron": {
+      "common": "White-faced Heron",
+      "scientific": "Egretta novaehollandiae",
+      "count": 575
+    },
+    "egretta novaehollandiae": {
+      "common": "White-faced Heron",
+      "scientific": "Egretta novaehollandiae",
+      "count": 575
+    },
+    "white-naped honeyeater": {
+      "common": "White-naped Honeyeater",
+      "scientific": "Melithreptus lunatus",
+      "count": 357
+    },
+    "melithreptus lunatus": {
+      "common": "White-naped Honeyeater",
+      "scientific": "Melithreptus lunatus",
+      "count": 357
+    },
+    "white-throated treecreeper": {
+      "common": "White-throated Treecreeper",
+      "scientific": "Cormobates leucophaea",
+      "count": 550
+    },
+    "cormobates leucophaea": {
+      "common": "White-throated Treecreeper",
+      "scientific": "Cormobates leucophaea",
+      "count": 550
+    },
+    "golden whistler": {
+      "common": "Golden Whistler",
+      "scientific": "Pachycephala pectoralis",
+      "count": 585
+    },
+    "pachycephala pectoralis": {
+      "common": "Golden Whistler",
+      "scientific": "Pachycephala pectoralis",
+      "count": 585
+    },
+    "yellow-faced honeyeater": {
+      "common": "Yellow-faced Honeyeater",
+      "scientific": "Caligavis chrysops",
+      "count": 635
+    },
+    "caligavis chrysops": {
+      "common": "Yellow-faced Honeyeater",
+      "scientific": "Caligavis chrysops",
+      "count": 635
+    },
+    "eastern yellow robin": {
+      "common": "Eastern Yellow Robin",
+      "scientific": "Eopsaltria australis",
+      "count": 964
+    },
+    "eopsaltria australis": {
+      "common": "Eastern Yellow Robin",
+      "scientific": "Eopsaltria australis",
+      "count": 964
+    },
+    "yellow-rumped thornbill": {
+      "common": "Yellow-rumped Thornbill",
+      "scientific": "Acanthiza chrysorrhoa",
+      "count": 24
+    },
+    "acanthiza chrysorrhoa": {
+      "common": "Yellow-rumped Thornbill",
+      "scientific": "Acanthiza chrysorrhoa",
+      "count": 24
+    },
+    "gray butcherbird": {
+      "common": "Gray Butcherbird",
+      "scientific": "Cracticus torquatus",
+      "count": 1336
+    },
+    "cracticus torquatus": {
+      "common": "Gray Butcherbird",
+      "scientific": "Cracticus torquatus",
+      "count": 1336
+    },
+    "hooded robin": {
+      "common": "Hooded Robin",
+      "scientific": "Melanodryas cucullata",
+      "count": 1
+    },
+    "melanodryas cucullata": {
+      "common": "Hooded Robin",
+      "scientific": "Melanodryas cucullata",
+      "count": 1
+    },
+    "southern emuwren": {
+      "common": "Southern Emuwren",
+      "scientific": "Stipiturus malachurus",
+      "count": 3
+    },
+    "stipiturus malachurus": {
+      "common": "Southern Emuwren",
+      "scientific": "Stipiturus malachurus",
+      "count": 3
+    },
+    "white-fronted chat": {
+      "common": "White-fronted Chat",
+      "scientific": "Epthianura albifrons",
+      "count": 3
+    },
+    "epthianura albifrons": {
+      "common": "White-fronted Chat",
+      "scientific": "Epthianura albifrons",
+      "count": 3
+    },
+    "common myna": {
+      "common": "Common Myna",
+      "scientific": "Acridotheres tristis",
+      "count": 1086
+    },
+    "acridotheres tristis": {
+      "common": "Common Myna",
+      "scientific": "Acridotheres tristis",
+      "count": 1086
+    },
+    "eastern rosella": {
+      "common": "Eastern Rosella",
+      "scientific": "Platycercus eximius",
+      "count": 1304
+    },
+    "platycercus eximius": {
+      "common": "Eastern Rosella",
+      "scientific": "Platycercus eximius",
+      "count": 1304
+    },
+    "eurasian blackbird": {
+      "common": "Eurasian Blackbird",
+      "scientific": "Turdus merula",
+      "count": 1737
+    },
+    "turdus merula": {
+      "common": "Eurasian Blackbird",
+      "scientific": "Turdus merula",
+      "count": 1737
+    },
+    "european goldfinch": {
+      "common": "European Goldfinch",
+      "scientific": "Carduelis carduelis",
+      "count": 155
+    },
+    "carduelis carduelis": {
+      "common": "European Goldfinch",
+      "scientific": "Carduelis carduelis",
+      "count": 155
+    },
+    "european starling": {
+      "common": "European Starling",
+      "scientific": "Sturnus vulgaris",
+      "count": 1073
+    },
+    "sturnus vulgaris": {
+      "common": "European Starling",
+      "scientific": "Sturnus vulgaris",
+      "count": 1073
+    },
+    "house sparrow": {
+      "common": "House Sparrow",
+      "scientific": "Passer domesticus",
+      "count": 258
+    },
+    "passer domesticus": {
+      "common": "House Sparrow",
+      "scientific": "Passer domesticus",
+      "count": 258
+    },
+    "silvereye": {
+      "common": "Silvereye",
+      "scientific": "Zosterops lateralis",
+      "count": 698
+    },
+    "zosterops lateralis": {
+      "common": "Silvereye",
+      "scientific": "Zosterops lateralis",
+      "count": 698
+    },
+    "welcome swallow": {
+      "common": "Welcome Swallow",
+      "scientific": "Hirundo neoxena",
+      "count": 1244
+    },
+    "hirundo neoxena": {
+      "common": "Welcome Swallow",
+      "scientific": "Hirundo neoxena",
+      "count": 1244
+    },
+    "willie-wagtail": {
+      "common": "Willie-wagtail",
+      "scientific": "Rhipidura leucophrys",
+      "count": 339
+    },
+    "rhipidura leucophrys": {
+      "common": "Willie-wagtail",
+      "scientific": "Rhipidura leucophrys",
+      "count": 339
+    },
+    "australian pelican": {
+      "common": "Australian Pelican",
+      "scientific": "Pelecanus conspicillatus",
+      "count": 387
+    },
+    "pelecanus conspicillatus": {
+      "common": "Australian Pelican",
+      "scientific": "Pelecanus conspicillatus",
+      "count": 387
+    },
+    "little wattlebird": {
+      "common": "Little Wattlebird",
+      "scientific": "Anthochaera chrysoptera",
+      "count": 1304
+    },
+    "anthochaera chrysoptera": {
+      "common": "Little Wattlebird",
+      "scientific": "Anthochaera chrysoptera",
+      "count": 1304
+    },
+    "eastern shrike-tit": {
+      "common": "Eastern Shrike-tit",
+      "scientific": "Falcunculus frontatus",
+      "count": 51
+    },
+    "falcunculus frontatus": {
+      "common": "Eastern Shrike-tit",
+      "scientific": "Falcunculus frontatus",
+      "count": 51
+    },
+    "tawny frogmouth": {
+      "common": "Tawny Frogmouth",
+      "scientific": "Podargus strigoides",
+      "count": 25
+    },
+    "podargus strigoides": {
+      "common": "Tawny Frogmouth",
+      "scientific": "Podargus strigoides",
+      "count": 25
+    },
+    "australian ibis": {
+      "common": "Australian Ibis",
+      "scientific": "Threskiornis molucca",
+      "count": 585
+    },
+    "threskiornis molucca": {
+      "common": "Australian Ibis",
+      "scientific": "Threskiornis molucca",
+      "count": 585
+    },
+    "crimson rosella": {
+      "common": "Crimson Rosella",
+      "scientific": "Platycercus elegans",
+      "count": 1432
+    },
+    "platycercus elegans": {
+      "common": "Crimson Rosella",
+      "scientific": "Platycercus elegans",
+      "count": 1432
+    },
+    "great cormorant": {
+      "common": "Great Cormorant",
+      "scientific": "Phalacrocorax carbo",
+      "count": 95
+    },
+    "phalacrocorax carbo": {
+      "common": "Great Cormorant",
+      "scientific": "Phalacrocorax carbo",
+      "count": 95
+    },
+    "bassian thrush": {
+      "common": "Bassian Thrush",
+      "scientific": "Zoothera lunulata",
+      "count": 125
+    },
+    "zoothera lunulata": {
+      "common": "Bassian Thrush",
+      "scientific": "Zoothera lunulata",
+      "count": 125
+    },
+    "australian rufous fantail": {
+      "common": "Australian Rufous Fantail",
+      "scientific": "Rhipidura rufifrons",
+      "count": 233
+    },
+    "rhipidura rufifrons": {
+      "common": "Australian Rufous Fantail",
+      "scientific": "Rhipidura rufifrons",
+      "count": 233
+    },
+    "australasian gannet": {
+      "common": "Australasian Gannet",
+      "scientific": "Morus serrator",
+      "count": 60
+    },
+    "morus serrator": {
+      "common": "Australasian Gannet",
+      "scientific": "Morus serrator",
+      "count": 60
+    },
+    "black-faced cormorant": {
+      "common": "Black-faced Cormorant",
+      "scientific": "Phalacrocorax fuscescens",
+      "count": 11
+    },
+    "phalacrocorax fuscescens": {
+      "common": "Black-faced Cormorant",
+      "scientific": "Phalacrocorax fuscescens",
+      "count": 11
+    },
+    "little pied cormorant": {
+      "common": "Little Pied Cormorant",
+      "scientific": "Microcarbo melanoleucos",
+      "count": 692
+    },
+    "microcarbo melanoleucos": {
+      "common": "Little Pied Cormorant",
+      "scientific": "Microcarbo melanoleucos",
+      "count": 692
+    },
+    "gang-gang cockatoo": {
+      "common": "Gang-gang Cockatoo",
+      "scientific": "Callocephalon fimbriatum",
+      "count": 3
+    },
+    "callocephalon fimbriatum": {
+      "common": "Gang-gang Cockatoo",
+      "scientific": "Callocephalon fimbriatum",
+      "count": 3
+    },
+    "brown goshawk": {
+      "common": "Brown Goshawk",
+      "scientific": "Tachyspiza fasciata",
+      "count": 74
+    },
+    "tachyspiza fasciata": {
+      "common": "Brown Goshawk",
+      "scientific": "Tachyspiza fasciata",
+      "count": 74
+    },
+    "white-fronted tern": {
+      "common": "White-fronted Tern",
+      "scientific": "Sterna striata",
+      "count": 1
+    },
+    "sterna striata": {
+      "common": "White-fronted Tern",
+      "scientific": "Sterna striata",
+      "count": 1
+    },
+    "satin flycatcher": {
+      "common": "Satin Flycatcher",
+      "scientific": "Myiagra cyanoleuca",
+      "count": 144
+    },
+    "myiagra cyanoleuca": {
+      "common": "Satin Flycatcher",
+      "scientific": "Myiagra cyanoleuca",
+      "count": 144
+    },
+    "australian reed warbler": {
+      "common": "Australian Reed Warbler",
+      "scientific": "Acrocephalus australis",
+      "count": 221
+    },
+    "acrocephalus australis": {
+      "common": "Australian Reed Warbler",
+      "scientific": "Acrocephalus australis",
+      "count": 221
+    },
+    "black-shouldered kite": {
+      "common": "Black-shouldered Kite",
+      "scientific": "Elanus axillaris",
+      "count": 277
+    },
+    "elanus axillaris": {
+      "common": "Black-shouldered Kite",
+      "scientific": "Elanus axillaris",
+      "count": 277
+    },
+    "australasian shoveler": {
+      "common": "Australasian Shoveler",
+      "scientific": "Spatula rhynchotis",
+      "count": 5
+    },
+    "spatula rhynchotis": {
+      "common": "Australasian Shoveler",
+      "scientific": "Spatula rhynchotis",
+      "count": 5
+    },
+    "bell miner": {
+      "common": "Bell Miner",
+      "scientific": "Manorina melanophrys",
+      "count": 70
+    },
+    "manorina melanophrys": {
+      "common": "Bell Miner",
+      "scientific": "Manorina melanophrys",
+      "count": 70
+    },
+    "blue-billed duck": {
+      "common": "Blue-billed Duck",
+      "scientific": "Oxyura australis",
+      "count": 20
+    },
+    "oxyura australis": {
+      "common": "Blue-billed Duck",
+      "scientific": "Oxyura australis",
+      "count": 20
+    },
+    "black-fronted dotterel": {
+      "common": "Black-fronted Dotterel",
+      "scientific": "Thinornis melanops",
+      "count": 13
+    },
+    "thinornis melanops": {
+      "common": "Black-fronted Dotterel",
+      "scientific": "Thinornis melanops",
+      "count": 13
+    },
+    "chestnut teal": {
+      "common": "Chestnut Teal",
+      "scientific": "Anas castanea",
+      "count": 243
+    },
+    "anas castanea": {
+      "common": "Chestnut Teal",
+      "scientific": "Anas castanea",
+      "count": 243
+    },
+    "dusky moorhen": {
+      "common": "Dusky Moorhen",
+      "scientific": "Gallinula tenebrosa",
+      "count": 268
+    },
+    "gallinula tenebrosa": {
+      "common": "Dusky Moorhen",
+      "scientific": "Gallinula tenebrosa",
+      "count": 268
+    },
+    "eurasian coot": {
+      "common": "Eurasian Coot",
+      "scientific": "Fulica atra",
+      "count": 313
+    },
+    "fulica atra": {
+      "common": "Eurasian Coot",
+      "scientific": "Fulica atra",
+      "count": 313
+    },
+    "galah": {
+      "common": "Galah",
+      "scientific": "Eolophus roseicapilla",
+      "count": 1089
+    },
+    "eolophus roseicapilla": {
+      "common": "Galah",
+      "scientific": "Eolophus roseicapilla",
+      "count": 1089
+    },
+    "horsfield's bronze-cuckoo": {
+      "common": "Horsfield's Bronze-Cuckoo",
+      "scientific": "Chalcites basalis",
+      "count": 33
+    },
+    "chalcites basalis": {
+      "common": "Horsfield's Bronze-Cuckoo",
+      "scientific": "Chalcites basalis",
+      "count": 33
+    },
+    "hoary-headed grebe": {
+      "common": "Hoary-headed Grebe",
+      "scientific": "Poliocephalus poliocephalus",
+      "count": 199
+    },
+    "poliocephalus poliocephalus": {
+      "common": "Hoary-headed Grebe",
+      "scientific": "Poliocephalus poliocephalus",
+      "count": 199
+    },
+    "maned duck": {
+      "common": "Maned Duck",
+      "scientific": "Chenonetta jubata",
+      "count": 524
+    },
+    "chenonetta jubata": {
+      "common": "Maned Duck",
+      "scientific": "Chenonetta jubata",
+      "count": 524
+    },
+    "pacific black duck": {
+      "common": "Pacific Black Duck",
+      "scientific": "Anas superciliosa",
+      "count": 621
+    },
+    "anas superciliosa": {
+      "common": "Pacific Black Duck",
+      "scientific": "Anas superciliosa",
+      "count": 621
+    },
+    "australasian swamphen": {
+      "common": "Australasian Swamphen",
+      "scientific": "Porphyrio melanotus",
+      "count": 453
+    },
+    "porphyrio melanotus": {
+      "common": "Australasian Swamphen",
+      "scientific": "Porphyrio melanotus",
+      "count": 453
+    },
+    "spotted dove": {
+      "common": "Spotted Dove",
+      "scientific": "Spilopelia chinensis",
+      "count": 1438
+    },
+    "spilopelia chinensis": {
+      "common": "Spotted Dove",
+      "scientific": "Spilopelia chinensis",
+      "count": 1438
+    },
+    "sulphur-crested cockatoo": {
+      "common": "Sulphur-crested Cockatoo",
+      "scientific": "Cacatua galerita",
+      "count": 1540
+    },
+    "cacatua galerita": {
+      "common": "Sulphur-crested Cockatoo",
+      "scientific": "Cacatua galerita",
+      "count": 1540
+    },
+    "swamp harrier": {
+      "common": "Swamp Harrier",
+      "scientific": "Circus approximans",
+      "count": 397
+    },
+    "circus approximans": {
+      "common": "Swamp Harrier",
+      "scientific": "Circus approximans",
+      "count": 397
+    },
+    "white-plumed honeyeater": {
+      "common": "White-plumed Honeyeater",
+      "scientific": "Ptilotula penicillata",
+      "count": 80
+    },
+    "ptilotula penicillata": {
+      "common": "White-plumed Honeyeater",
+      "scientific": "Ptilotula penicillata",
+      "count": 80
+    },
+    "yellow-billed spoonbill": {
+      "common": "Yellow-billed Spoonbill",
+      "scientific": "Platalea flavipes",
+      "count": 31
+    },
+    "platalea flavipes": {
+      "common": "Yellow-billed Spoonbill",
+      "scientific": "Platalea flavipes",
+      "count": 31
+    },
+    "yellow thornbill": {
+      "common": "Yellow Thornbill",
+      "scientific": "Acanthiza nana",
+      "count": 6
+    },
+    "acanthiza nana": {
+      "common": "Yellow Thornbill",
+      "scientific": "Acanthiza nana",
+      "count": 6
+    },
+    "little black cormorant": {
+      "common": "Little Black Cormorant",
+      "scientific": "Phalacrocorax sulcirostris",
+      "count": 299
+    },
+    "phalacrocorax sulcirostris": {
+      "common": "Little Black Cormorant",
+      "scientific": "Phalacrocorax sulcirostris",
+      "count": 299
+    },
+    "rainbow lorikeet": {
+      "common": "Rainbow Lorikeet",
+      "scientific": "Trichoglossus moluccanus",
+      "count": 1661
+    },
+    "trichoglossus moluccanus": {
+      "common": "Rainbow Lorikeet",
+      "scientific": "Trichoglossus moluccanus",
+      "count": 1661
+    },
+    "pied oystercatcher": {
+      "common": "Pied Oystercatcher",
+      "scientific": "Haematopus longirostris",
+      "count": 33
+    },
+    "haematopus longirostris": {
+      "common": "Pied Oystercatcher",
+      "scientific": "Haematopus longirostris",
+      "count": 33
+    },
+    "red-necked stint": {
+      "common": "Red-necked Stint",
+      "scientific": "Calidris ruficollis",
+      "count": 2
+    },
+    "calidris ruficollis": {
+      "common": "Red-necked Stint",
+      "scientific": "Calidris ruficollis",
+      "count": 2
+    },
+    "singing honeyeater": {
+      "common": "Singing Honeyeater",
+      "scientific": "Gavicalis virescens",
+      "count": 48
+    },
+    "gavicalis virescens": {
+      "common": "Singing Honeyeater",
+      "scientific": "Gavicalis virescens",
+      "count": 48
+    },
+    "brush bronzewing": {
+      "common": "Brush Bronzewing",
+      "scientific": "Phaps elegans",
+      "count": 16
+    },
+    "phaps elegans": {
+      "common": "Brush Bronzewing",
+      "scientific": "Phaps elegans",
+      "count": 16
+    },
+    "little raven": {
+      "common": "Little Raven",
+      "scientific": "Corvus mellori",
+      "count": 1701
+    },
+    "corvus mellori": {
+      "common": "Little Raven",
+      "scientific": "Corvus mellori",
+      "count": 1701
+    },
+    "song thrush": {
+      "common": "Song Thrush",
+      "scientific": "Turdus philomelos",
+      "count": 6
+    },
+    "turdus philomelos": {
+      "common": "Song Thrush",
+      "scientific": "Turdus philomelos",
+      "count": 6
+    },
+    "straw-necked ibis": {
+      "common": "Straw-necked Ibis",
+      "scientific": "Threskiornis spinicollis",
+      "count": 712
+    },
+    "threskiornis spinicollis": {
+      "common": "Straw-necked Ibis",
+      "scientific": "Threskiornis spinicollis",
+      "count": 712
+    },
+    "pied cormorant": {
+      "common": "Pied Cormorant",
+      "scientific": "Phalacrocorax varius",
+      "count": 197
+    },
+    "phalacrocorax varius": {
+      "common": "Pied Cormorant",
+      "scientific": "Phalacrocorax varius",
+      "count": 197
+    },
+    "common bronzewing": {
+      "common": "Common Bronzewing",
+      "scientific": "Phaps chalcoptera",
+      "count": 322
+    },
+    "phaps chalcoptera": {
+      "common": "Common Bronzewing",
+      "scientific": "Phaps chalcoptera",
+      "count": 322
+    },
+    "flame robin": {
+      "common": "Flame Robin",
+      "scientific": "Petroica phoenicea",
+      "count": 23
+    },
+    "petroica phoenicea": {
+      "common": "Flame Robin",
+      "scientific": "Petroica phoenicea",
+      "count": 23
+    },
+    "royal spoonbill": {
+      "common": "Royal Spoonbill",
+      "scientific": "Platalea regia",
+      "count": 190
+    },
+    "platalea regia": {
+      "common": "Royal Spoonbill",
+      "scientific": "Platalea regia",
+      "count": 190
+    },
+    "crested pigeon": {
+      "common": "Crested Pigeon",
+      "scientific": "Ocyphaps lophotes",
+      "count": 495
+    },
+    "ocyphaps lophotes": {
+      "common": "Crested Pigeon",
+      "scientific": "Ocyphaps lophotes",
+      "count": 495
+    },
+    "spiny-cheeked honeyeater": {
+      "common": "Spiny-cheeked Honeyeater",
+      "scientific": "Acanthagenys rufogularis",
+      "count": 172
+    },
+    "acanthagenys rufogularis": {
+      "common": "Spiny-cheeked Honeyeater",
+      "scientific": "Acanthagenys rufogularis",
+      "count": 172
+    },
+    "musk lorikeet": {
+      "common": "Musk Lorikeet",
+      "scientific": "Trichoglossus concinnus",
+      "count": 169
+    },
+    "trichoglossus concinnus": {
+      "common": "Musk Lorikeet",
+      "scientific": "Trichoglossus concinnus",
+      "count": 169
+    },
+    "sahul brush cuckoo": {
+      "common": "Sahul Brush Cuckoo",
+      "scientific": "Cacomantis variolosus",
+      "count": 1
+    },
+    "cacomantis variolosus": {
+      "common": "Sahul Brush Cuckoo",
+      "scientific": "Cacomantis variolosus",
+      "count": 1
+    },
+    "eurasian tree sparrow": {
+      "common": "Eurasian Tree Sparrow",
+      "scientific": "Passer montanus",
+      "count": 1
+    },
+    "passer montanus": {
+      "common": "Eurasian Tree Sparrow",
+      "scientific": "Passer montanus",
+      "count": 1
+    },
+    "australian raven": {
+      "common": "Australian Raven",
+      "scientific": "Corvus coronoides",
+      "count": 25
+    },
+    "corvus coronoides": {
+      "common": "Australian Raven",
+      "scientific": "Corvus coronoides",
+      "count": 25
+    },
+    "great egret": {
+      "common": "Great Egret",
+      "scientific": "Ardea alba",
+      "count": 199
+    },
+    "ardea alba": {
+      "common": "Great Egret",
+      "scientific": "Ardea alba",
+      "count": 199
+    },
+    "little penguin": {
+      "common": "Little Penguin",
+      "scientific": "Eudyptula minor",
+      "count": 5
+    },
+    "eudyptula minor": {
+      "common": "Little Penguin",
+      "scientific": "Eudyptula minor",
+      "count": 5
+    },
+    "pallid cuckoo": {
+      "common": "Pallid Cuckoo",
+      "scientific": "Heteroscenes pallidus",
+      "count": 7
+    },
+    "heteroscenes pallidus": {
+      "common": "Pallid Cuckoo",
+      "scientific": "Heteroscenes pallidus",
+      "count": 7
+    },
+    "leaden flycatcher": {
+      "common": "Leaden Flycatcher",
+      "scientific": "Myiagra rubecula",
+      "count": 2
+    },
+    "myiagra rubecula": {
+      "common": "Leaden Flycatcher",
+      "scientific": "Myiagra rubecula",
+      "count": 2
+    },
+    "australasian grebe": {
+      "common": "Australasian Grebe",
+      "scientific": "Tachybaptus novaehollandiae",
+      "count": 108
+    },
+    "tachybaptus novaehollandiae": {
+      "common": "Australasian Grebe",
+      "scientific": "Tachybaptus novaehollandiae",
+      "count": 108
+    },
+    "australian pipit": {
+      "common": "Australian Pipit",
+      "scientific": "Anthus australis",
+      "count": 19
+    },
+    "anthus australis": {
+      "common": "Australian Pipit",
+      "scientific": "Anthus australis",
+      "count": 19
+    },
+    "gray teal": {
+      "common": "Gray Teal",
+      "scientific": "Anas gracilis",
+      "count": 86
+    },
+    "anas gracilis": {
+      "common": "Gray Teal",
+      "scientific": "Anas gracilis",
+      "count": 86
+    },
+    "latham's snipe": {
+      "common": "Latham's Snipe",
+      "scientific": "Gallinago hardwickii",
+      "count": 23
+    },
+    "gallinago hardwickii": {
+      "common": "Latham's Snipe",
+      "scientific": "Gallinago hardwickii",
+      "count": 23
+    },
+    "hardhead": {
+      "common": "Hardhead",
+      "scientific": "Aythya australis",
+      "count": 148
+    },
+    "aythya australis": {
+      "common": "Hardhead",
+      "scientific": "Aythya australis",
+      "count": 148
+    },
+    "australian boobook": {
+      "common": "Australian Boobook",
+      "scientific": "Ninox boobook",
+      "count": 35
+    },
+    "ninox boobook": {
+      "common": "Australian Boobook",
+      "scientific": "Ninox boobook",
+      "count": 35
+    },
+    "plumed egret": {
+      "common": "Plumed Egret",
+      "scientific": "Ardea plumifera",
+      "count": 1
+    },
+    "ardea plumifera": {
+      "common": "Plumed Egret",
+      "scientific": "Ardea plumifera",
+      "count": 1
+    },
+    "scaly-breasted lorikeet": {
+      "common": "Scaly-breasted Lorikeet",
+      "scientific": "Trichoglossus chlorolepidotus",
+      "count": 2
+    },
+    "trichoglossus chlorolepidotus": {
+      "common": "Scaly-breasted Lorikeet",
+      "scientific": "Trichoglossus chlorolepidotus",
+      "count": 2
+    },
+    "pacific swift": {
+      "common": "Pacific Swift",
+      "scientific": "Apus pacificus",
+      "count": 5
+    },
+    "apus pacificus": {
+      "common": "Pacific Swift",
+      "scientific": "Apus pacificus",
+      "count": 5
+    },
+    "kelp gull": {
+      "common": "Kelp Gull",
+      "scientific": "Larus dominicanus",
+      "count": 22
+    },
+    "larus dominicanus": {
+      "common": "Kelp Gull",
+      "scientific": "Larus dominicanus",
+      "count": 22
+    },
+    "little corella": {
+      "common": "Little Corella",
+      "scientific": "Cacatua sanguinea",
+      "count": 346
+    },
+    "cacatua sanguinea": {
+      "common": "Little Corella",
+      "scientific": "Cacatua sanguinea",
+      "count": 346
+    },
+    "little eagle": {
+      "common": "Little Eagle",
+      "scientific": "Hieraaetus morphnoides",
+      "count": 4
+    },
+    "hieraaetus morphnoides": {
+      "common": "Little Eagle",
+      "scientific": "Hieraaetus morphnoides",
+      "count": 4
+    },
+    "pied currawong": {
+      "common": "Pied Currawong",
+      "scientific": "Strepera graculina",
+      "count": 99
+    },
+    "strepera graculina": {
+      "common": "Pied Currawong",
+      "scientific": "Strepera graculina",
+      "count": 99
+    },
+    "ruddy turnstone": {
+      "common": "Ruddy Turnstone",
+      "scientific": "Arenaria interpres",
+      "count": 1
+    },
+    "arenaria interpres": {
+      "common": "Ruddy Turnstone",
+      "scientific": "Arenaria interpres",
+      "count": 1
+    },
+    "sooty oystercatcher": {
+      "common": "Sooty Oystercatcher",
+      "scientific": "Haematopus fuliginosus",
+      "count": 6
+    },
+    "haematopus fuliginosus": {
+      "common": "Sooty Oystercatcher",
+      "scientific": "Haematopus fuliginosus",
+      "count": 6
+    },
+    "spotless crake": {
+      "common": "Spotless Crake",
+      "scientific": "Zapornia tabuensis",
+      "count": 56
+    },
+    "zapornia tabuensis": {
+      "common": "Spotless Crake",
+      "scientific": "Zapornia tabuensis",
+      "count": 56
+    },
+    "white-bellied sea-eagle": {
+      "common": "White-bellied Sea-Eagle",
+      "scientific": "Icthyophaga leucogaster",
+      "count": 71
+    },
+    "icthyophaga leucogaster": {
+      "common": "White-bellied Sea-Eagle",
+      "scientific": "Icthyophaga leucogaster",
+      "count": 71
+    },
+    "hooded plover": {
+      "common": "Hooded Plover",
+      "scientific": "Thinornis cucullatus",
+      "count": 3
+    },
+    "thinornis cucullatus": {
+      "common": "Hooded Plover",
+      "scientific": "Thinornis cucullatus",
+      "count": 3
+    },
+    "white-capped albatross": {
+      "common": "White-capped Albatross",
+      "scientific": "Thalassarche cauta",
+      "count": 2
+    },
+    "thalassarche cauta": {
+      "common": "White-capped Albatross",
+      "scientific": "Thalassarche cauta",
+      "count": 2
+    },
+    "pacific heron": {
+      "common": "Pacific Heron",
+      "scientific": "Ardea pacifica",
+      "count": 41
+    },
+    "ardea pacifica": {
+      "common": "Pacific Heron",
+      "scientific": "Ardea pacifica",
+      "count": 41
+    },
+    "nankeen night heron": {
+      "common": "Nankeen Night Heron",
+      "scientific": "Nycticorax caledonicus",
+      "count": 16
+    },
+    "nycticorax caledonicus": {
+      "common": "Nankeen Night Heron",
+      "scientific": "Nycticorax caledonicus",
+      "count": 16
+    },
+    "brown falcon": {
+      "common": "Brown Falcon",
+      "scientific": "Falco berigora",
+      "count": 31
+    },
+    "falco berigora": {
+      "common": "Brown Falcon",
+      "scientific": "Falco berigora",
+      "count": 31
+    },
+    "brown songlark": {
+      "common": "Brown Songlark",
+      "scientific": "Cincloramphus cruralis",
+      "count": 1
+    },
+    "cincloramphus cruralis": {
+      "common": "Brown Songlark",
+      "scientific": "Cincloramphus cruralis",
+      "count": 1
+    },
+    "musk duck": {
+      "common": "Musk Duck",
+      "scientific": "Biziura lobata",
+      "count": 7
+    },
+    "biziura lobata": {
+      "common": "Musk Duck",
+      "scientific": "Biziura lobata",
+      "count": 7
+    },
+    "spotted harrier": {
+      "common": "Spotted Harrier",
+      "scientific": "Circus assimilis",
+      "count": 7
+    },
+    "circus assimilis": {
+      "common": "Spotted Harrier",
+      "scientific": "Circus assimilis",
+      "count": 7
+    },
+    "yellow-tailed black-cockatoo": {
+      "common": "Yellow-tailed Black-Cockatoo",
+      "scientific": "Zanda funerea",
+      "count": 200
+    },
+    "zanda funerea": {
+      "common": "Yellow-tailed Black-Cockatoo",
+      "scientific": "Zanda funerea",
+      "count": 200
+    },
+    "australian ringneck": {
+      "common": "Australian Ringneck",
+      "scientific": "Barnardius zonarius",
+      "count": 1
+    },
+    "barnardius zonarius": {
+      "common": "Australian Ringneck",
+      "scientific": "Barnardius zonarius",
+      "count": 1
+    },
+    "scarlet myzomela": {
+      "common": "Scarlet Myzomela",
+      "scientific": "Myzomela sanguinolenta",
+      "count": 14
+    },
+    "myzomela sanguinolenta": {
+      "common": "Scarlet Myzomela",
+      "scientific": "Myzomela sanguinolenta",
+      "count": 14
+    },
+    "caspian tern": {
+      "common": "Caspian Tern",
+      "scientific": "Hydroprogne caspia",
+      "count": 7
+    },
+    "hydroprogne caspia": {
+      "common": "Caspian Tern",
+      "scientific": "Hydroprogne caspia",
+      "count": 7
+    },
+    "australasian bittern": {
+      "common": "Australasian Bittern",
+      "scientific": "Botaurus poiciloptilus",
+      "count": 9
+    },
+    "botaurus poiciloptilus": {
+      "common": "Australasian Bittern",
+      "scientific": "Botaurus poiciloptilus",
+      "count": 9
+    },
+    "collared sparrowhawk": {
+      "common": "Collared Sparrowhawk",
+      "scientific": "Tachyspiza cirrocephala",
+      "count": 32
+    },
+    "tachyspiza cirrocephala": {
+      "common": "Collared Sparrowhawk",
+      "scientific": "Tachyspiza cirrocephala",
+      "count": 32
+    },
+    "golden-headed cisticola": {
+      "common": "Golden-headed Cisticola",
+      "scientific": "Cisticola exilis",
+      "count": 195
+    },
+    "cisticola exilis": {
+      "common": "Golden-headed Cisticola",
+      "scientific": "Cisticola exilis",
+      "count": 195
+    },
+    "peregrine falcon": {
+      "common": "Peregrine Falcon",
+      "scientific": "Falco peregrinus",
+      "count": 43
+    },
+    "falco peregrinus": {
+      "common": "Peregrine Falcon",
+      "scientific": "Falco peregrinus",
+      "count": 43
+    },
+    "white-throated nightjar": {
+      "common": "White-throated Nightjar",
+      "scientific": "Eurostopodus mystacalis",
+      "count": 1
+    },
+    "eurostopodus mystacalis": {
+      "common": "White-throated Nightjar",
+      "scientific": "Eurostopodus mystacalis",
+      "count": 1
+    },
+    "northern giant-petrel": {
+      "common": "Northern Giant-Petrel",
+      "scientific": "Macronectes halli",
+      "count": 1
+    },
+    "macronectes halli": {
+      "common": "Northern Giant-Petrel",
+      "scientific": "Macronectes halli",
+      "count": 1
+    },
+    "lewin's rail": {
+      "common": "Lewin's Rail",
+      "scientific": "Lewinia pectoralis",
+      "count": 18
+    },
+    "lewinia pectoralis": {
+      "common": "Lewin's Rail",
+      "scientific": "Lewinia pectoralis",
+      "count": 18
+    },
+    "magpie goose": {
+      "common": "Magpie Goose",
+      "scientific": "Anseranas semipalmata",
+      "count": 2
+    },
+    "anseranas semipalmata": {
+      "common": "Magpie Goose",
+      "scientific": "Anseranas semipalmata",
+      "count": 2
+    },
+    "buff-banded rail": {
+      "common": "Buff-banded Rail",
+      "scientific": "Gallirallus philippensis",
+      "count": 35
+    },
+    "gallirallus philippensis": {
+      "common": "Buff-banded Rail",
+      "scientific": "Gallirallus philippensis",
+      "count": 35
+    },
+    "pacific koel": {
+      "common": "Pacific Koel",
+      "scientific": "Eudynamys orientalis",
+      "count": 12
+    },
+    "eudynamys orientalis": {
+      "common": "Pacific Koel",
+      "scientific": "Eudynamys orientalis",
+      "count": 12
+    },
+    "gray-tailed tattler": {
+      "common": "Gray-tailed Tattler",
+      "scientific": "Tringa brevipes",
+      "count": 1
+    },
+    "tringa brevipes": {
+      "common": "Gray-tailed Tattler",
+      "scientific": "Tringa brevipes",
+      "count": 1
+    },
+    "australian hobby": {
+      "common": "Australian Hobby",
+      "scientific": "Falco longipennis",
+      "count": 42
+    },
+    "falco longipennis": {
+      "common": "Australian Hobby",
+      "scientific": "Falco longipennis",
+      "count": 42
+    },
+    "australian fairy tern": {
+      "common": "Australian Fairy Tern",
+      "scientific": "Sternula nereis",
+      "count": 4
+    },
+    "sternula nereis": {
+      "common": "Australian Fairy Tern",
+      "scientific": "Sternula nereis",
+      "count": 4
+    },
+    "whistling kite": {
+      "common": "Whistling Kite",
+      "scientific": "Haliastur sphenurus",
+      "count": 17
+    },
+    "haliastur sphenurus": {
+      "common": "Whistling Kite",
+      "scientific": "Haliastur sphenurus",
+      "count": 17
+    },
+    "eurasian skylark": {
+      "common": "Eurasian Skylark",
+      "scientific": "Alauda arvensis",
+      "count": 52
+    },
+    "alauda arvensis": {
+      "common": "Eurasian Skylark",
+      "scientific": "Alauda arvensis",
+      "count": 52
+    },
+    "australian king-parrot": {
+      "common": "Australian King-Parrot",
+      "scientific": "Alisterus scapularis",
+      "count": 265
+    },
+    "alisterus scapularis": {
+      "common": "Australian King-Parrot",
+      "scientific": "Alisterus scapularis",
+      "count": 265
+    },
+    "cape barren goose": {
+      "common": "Cape Barren Goose",
+      "scientific": "Cereopsis novaehollandiae",
+      "count": 19
+    },
+    "cereopsis novaehollandiae": {
+      "common": "Cape Barren Goose",
+      "scientific": "Cereopsis novaehollandiae",
+      "count": 19
+    },
+    "cockatiel": {
+      "common": "Cockatiel",
+      "scientific": "Nymphicus hollandicus",
+      "count": 1
+    },
+    "nymphicus hollandicus": {
+      "common": "Cockatiel",
+      "scientific": "Nymphicus hollandicus",
+      "count": 1
+    },
+    "little lorikeet": {
+      "common": "Little Lorikeet",
+      "scientific": "Psitteuteles pusillus",
+      "count": 3
+    },
+    "psitteuteles pusillus": {
+      "common": "Little Lorikeet",
+      "scientific": "Psitteuteles pusillus",
+      "count": 3
+    },
+    "weebill": {
+      "common": "Weebill",
+      "scientific": "Smicrornis brevirostris",
+      "count": 9
+    },
+    "smicrornis brevirostris": {
+      "common": "Weebill",
+      "scientific": "Smicrornis brevirostris",
+      "count": 9
+    },
+    "scarlet robin": {
+      "common": "Scarlet Robin",
+      "scientific": "Petroica boodang",
+      "count": 6
+    },
+    "petroica boodang": {
+      "common": "Scarlet Robin",
+      "scientific": "Petroica boodang",
+      "count": 6
+    },
+    "pied stilt": {
+      "common": "Pied Stilt",
+      "scientific": "Himantopus leucocephalus",
+      "count": 2
+    },
+    "himantopus leucocephalus": {
+      "common": "Pied Stilt",
+      "scientific": "Himantopus leucocephalus",
+      "count": 2
+    },
+    "white-winged triller": {
+      "common": "White-winged Triller",
+      "scientific": "Lalage tricolor",
+      "count": 1
+    },
+    "lalage tricolor": {
+      "common": "White-winged Triller",
+      "scientific": "Lalage tricolor",
+      "count": 1
+    },
+    "eastern cattle-egret": {
+      "common": "Eastern Cattle-Egret",
+      "scientific": "Ardea coromanda",
+      "count": 45
+    },
+    "ardea coromanda": {
+      "common": "Eastern Cattle-Egret",
+      "scientific": "Ardea coromanda",
+      "count": 45
+    },
+    "powerful owl": {
+      "common": "Powerful Owl",
+      "scientific": "Ninox strenua",
+      "count": 23
+    },
+    "ninox strenua": {
+      "common": "Powerful Owl",
+      "scientific": "Ninox strenua",
+      "count": 23
+    },
+    "olive-backed oriole": {
+      "common": "Olive-backed Oriole",
+      "scientific": "Oriolus sagittatus",
+      "count": 45
+    },
+    "oriolus sagittatus": {
+      "common": "Olive-backed Oriole",
+      "scientific": "Oriolus sagittatus",
+      "count": 45
+    },
+    "australian crake": {
+      "common": "Australian Crake",
+      "scientific": "Porzana fluminea",
+      "count": 39
+    },
+    "porzana fluminea": {
+      "common": "Australian Crake",
+      "scientific": "Porzana fluminea",
+      "count": 39
+    },
+    "rose robin": {
+      "common": "Rose Robin",
+      "scientific": "Petroica rosea",
+      "count": 3
+    },
+    "petroica rosea": {
+      "common": "Rose Robin",
+      "scientific": "Petroica rosea",
+      "count": 3
+    },
+    "red-rumped parrot": {
+      "common": "Red-rumped Parrot",
+      "scientific": "Psephotus haematonotus",
+      "count": 2
+    },
+    "psephotus haematonotus": {
+      "common": "Red-rumped Parrot",
+      "scientific": "Psephotus haematonotus",
+      "count": 2
+    },
+    "striated fieldwren": {
+      "common": "Striated Fieldwren",
+      "scientific": "Calamanthus fuliginosus",
+      "count": 6
+    },
+    "calamanthus fuliginosus": {
+      "common": "Striated Fieldwren",
+      "scientific": "Calamanthus fuliginosus",
+      "count": 6
+    },
+    "eastern barn owl": {
+      "common": "Eastern Barn Owl",
+      "scientific": "Tyto javanica",
+      "count": 3
+    },
+    "tyto javanica": {
+      "common": "Eastern Barn Owl",
+      "scientific": "Tyto javanica",
+      "count": 3
+    },
+    "australasian darter": {
+      "common": "Australasian Darter",
+      "scientific": "Anhinga novaehollandiae",
+      "count": 19
+    },
+    "anhinga novaehollandiae": {
+      "common": "Australasian Darter",
+      "scientific": "Anhinga novaehollandiae",
+      "count": 19
+    },
+    "long-billed corella": {
+      "common": "Long-billed Corella",
+      "scientific": "Cacatua tenuirostris",
+      "count": 6
+    },
+    "cacatua tenuirostris": {
+      "common": "Long-billed Corella",
+      "scientific": "Cacatua tenuirostris",
+      "count": 6
+    },
+    "pink robin": {
+      "common": "Pink Robin",
+      "scientific": "Petroica rodinogaster",
+      "count": 12
+    },
+    "petroica rodinogaster": {
+      "common": "Pink Robin",
+      "scientific": "Petroica rodinogaster",
+      "count": 12
+    },
+    "australian owlet-nightjar": {
+      "common": "Australian Owlet-nightjar",
+      "scientific": "Aegotheles cristatus",
+      "count": 2
+    },
+    "aegotheles cristatus": {
+      "common": "Australian Owlet-nightjar",
+      "scientific": "Aegotheles cristatus",
+      "count": 2
+    },
+    "fairy martin": {
+      "common": "Fairy Martin",
+      "scientific": "Petrochelidon ariel",
+      "count": 6
+    },
+    "petrochelidon ariel": {
+      "common": "Fairy Martin",
+      "scientific": "Petrochelidon ariel",
+      "count": 6
+    },
+    "little grassbird": {
+      "common": "Little Grassbird",
+      "scientific": "Poodytes gramineus",
+      "count": 136
+    },
+    "poodytes gramineus": {
+      "common": "Little Grassbird",
+      "scientific": "Poodytes gramineus",
+      "count": 136
+    },
+    "little egret": {
+      "common": "Little Egret",
+      "scientific": "Egretta garzetta",
+      "count": 13
+    },
+    "egretta garzetta": {
+      "common": "Little Egret",
+      "scientific": "Egretta garzetta",
+      "count": 13
+    },
+    "tree martin": {
+      "common": "Tree Martin",
+      "scientific": "Petrochelidon nigricans",
+      "count": 3
+    },
+    "petrochelidon nigricans": {
+      "common": "Tree Martin",
+      "scientific": "Petrochelidon nigricans",
+      "count": 3
+    },
+    "european greenfinch": {
+      "common": "European Greenfinch",
+      "scientific": "Chloris chloris",
+      "count": 13
+    },
+    "chloris chloris": {
+      "common": "European Greenfinch",
+      "scientific": "Chloris chloris",
+      "count": 13
+    },
+    "glossy ibis": {
+      "common": "Glossy Ibis",
+      "scientific": "Plegadis falcinellus",
+      "count": 3
+    },
+    "plegadis falcinellus": {
+      "common": "Glossy Ibis",
+      "scientific": "Plegadis falcinellus",
+      "count": 3
+    },
+    "black falcon": {
+      "common": "Black Falcon",
+      "scientific": "Falco subniger",
+      "count": 1
+    },
+    "falco subniger": {
+      "common": "Black Falcon",
+      "scientific": "Falco subniger",
+      "count": 1
+    },
+    "white-throated needletail": {
+      "common": "White-throated Needletail",
+      "scientific": "Hirundapus caudacutus",
+      "count": 7
+    },
+    "hirundapus caudacutus": {
+      "common": "White-throated Needletail",
+      "scientific": "Hirundapus caudacutus",
+      "count": 7
+    },
+    "black-tailed nativehen": {
+      "common": "Black-tailed Nativehen",
+      "scientific": "Tribonyx ventralis",
+      "count": 1
+    },
+    "tribonyx ventralis": {
+      "common": "Black-tailed Nativehen",
+      "scientific": "Tribonyx ventralis",
+      "count": 1
+    },
+    "blue-faced honeyeater": {
+      "common": "Blue-faced Honeyeater",
+      "scientific": "Entomyzon cyanotis",
+      "count": 10
+    },
+    "entomyzon cyanotis": {
+      "common": "Blue-faced Honeyeater",
+      "scientific": "Entomyzon cyanotis",
+      "count": 10
+    },
+    "masked woodswallow": {
+      "common": "Masked Woodswallow",
+      "scientific": "Artamus personatus",
+      "count": 1
+    },
+    "artamus personatus": {
+      "common": "Masked Woodswallow",
+      "scientific": "Artamus personatus",
+      "count": 1
+    },
+    "fairy prion": {
+      "common": "Fairy Prion",
+      "scientific": "Pachyptila turtur",
+      "count": 1
+    },
+    "pachyptila turtur": {
+      "common": "Fairy Prion",
+      "scientific": "Pachyptila turtur",
+      "count": 1
+    },
+    "dollarbird": {
+      "common": "Dollarbird",
+      "scientific": "Eurystomus orientalis",
+      "count": 1
+    },
+    "eurystomus orientalis": {
+      "common": "Dollarbird",
+      "scientific": "Eurystomus orientalis",
+      "count": 1
+    },
+    "rose-ringed parakeet": {
+      "common": "Rose-ringed Parakeet",
+      "scientific": "Psittacula krameri",
+      "count": 4
+    },
+    "psittacula krameri": {
+      "common": "Rose-ringed Parakeet",
+      "scientific": "Psittacula krameri",
+      "count": 4
+    },
+    "great crested grebe": {
+      "common": "Great Crested Grebe",
+      "scientific": "Podiceps cristatus",
+      "count": 89
+    },
+    "podiceps cristatus": {
+      "common": "Great Crested Grebe",
+      "scientific": "Podiceps cristatus",
+      "count": 89
+    },
+    "baillon's crake": {
+      "common": "Baillon's Crake",
+      "scientific": "Zapornia pusilla",
+      "count": 2
+    },
+    "zapornia pusilla": {
+      "common": "Baillon's Crake",
+      "scientific": "Zapornia pusilla",
+      "count": 2
+    },
+    "black kite": {
+      "common": "Black Kite",
+      "scientific": "Milvus migrans",
+      "count": 1
+    },
+    "milvus migrans": {
+      "common": "Black Kite",
+      "scientific": "Milvus migrans",
+      "count": 1
+    },
+    "brown quail": {
+      "common": "Brown Quail",
+      "scientific": "Synoicus ypsilophorus",
+      "count": 1
+    },
+    "synoicus ypsilophorus": {
+      "common": "Brown Quail",
+      "scientific": "Synoicus ypsilophorus",
+      "count": 1
+    },
+    "wandering whistling-duck": {
+      "common": "Wandering Whistling-Duck",
+      "scientific": "Dendrocygna arcuata",
+      "count": 82
+    },
+    "dendrocygna arcuata": {
+      "common": "Wandering Whistling-Duck",
+      "scientific": "Dendrocygna arcuata",
+      "count": 82
+    },
+    "gray goshawk": {
+      "common": "Gray Goshawk",
+      "scientific": "Tachyspiza novaehollandiae",
+      "count": 1
+    },
+    "tachyspiza novaehollandiae": {
+      "common": "Gray Goshawk",
+      "scientific": "Tachyspiza novaehollandiae",
+      "count": 1
+    },
+    "white-headed pigeon": {
+      "common": "White-headed Pigeon",
+      "scientific": "Columba leucomela",
+      "count": 1
+    },
+    "columba leucomela": {
+      "common": "White-headed Pigeon",
+      "scientific": "Columba leucomela",
+      "count": 1
+    },
+    "whiskered tern": {
+      "common": "Whiskered Tern",
+      "scientific": "Chlidonias hybrida",
+      "count": 1
+    },
+    "chlidonias hybrida": {
+      "common": "Whiskered Tern",
+      "scientific": "Chlidonias hybrida",
+      "count": 1
+    }
+  }
+}
