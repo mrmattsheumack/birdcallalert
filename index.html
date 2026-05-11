@@ -106,7 +106,7 @@ const PI_AUDIO_BASE = "http://eaglecam.local:8090";
 // ─── App version ────────────────────────────────────────────────────
 // Bump on every deploy. Visible in the footer so we know which build is
 // running when investigating bug reports or screenshots.
-const APP_VERSION = "v5.0";
+const APP_VERSION = "v5.1";
 const APP_VERSION_DATE = "2026-05-11";
 
 // ─── Default priority list (seed) ───────────────────────────────────
@@ -1313,17 +1313,19 @@ function App() {
     });
   }, [classifications, historyClsFilter]);
 
-  // History "Today" bucket: derived from the live window (already in memory).
-  // Mixes dismissed AND non-dismissed today's items so that everything
-  // detected today is visible in history, but the live feed is the better
-  // place to interact with non-dismissed today items. We could choose to
-  // show only dismissed-today here, but that creates the dead-zone
-  // "what happened today that I haven't actioned" question. Showing all
-  // of today is more useful. The live-feed-vs-history difference is then:
-  // history is the archive view, live is the action view.
+  // History "Today" bucket: items dismissed today.
+  // Derived from the live window (already in memory) so dismissing a card
+  // makes it appear in Today instantly with no fetch.
+  //
+  // We filter to dismissed-only here because today is the "actioned" view:
+  // you're actively triaging in the live feed, and history is where things
+  // go when you've explicitly cleared them. Yesterday and older buckets
+  // include everything (dismissed or not) because at that point the
+  // distinction is moot — those are the archive view.
   const todayItems = useMemo(() => {
     const { gte, lt } = historyBucketRange("Today");
     const filtered = detections.filter(d => {
+      if (!d.dismissed) return false;
       const t = d.created_at;
       return t >= gte && t < lt;
     });
@@ -1778,9 +1780,11 @@ function App() {
                             padding: "16px 6px", fontSize: 13,
                             color: "var(--text-3)", textAlign: "center",
                           }}>
-                            {isToday || entry?.loaded
-                              ? "Nothing in this bucket."
-                              : "Not loaded yet."}
+                            {isToday
+                              ? "Nothing dismissed today yet. Tap the × on a live card to file it here."
+                              : entry?.loaded
+                                ? "Nothing in this bucket."
+                                : "Not loaded yet."}
                           </div>
                         )}
                         {!loading && !loadError && items.length > 0 && (
