@@ -112,7 +112,7 @@ const PI_AUDIO_BASE = "http://100.99.80.39:8090";
 // ─── App version ────────────────────────────────────────────────────
 // Bump on every deploy. Visible in the footer so we know which build is
 // running when investigating bug reports or screenshots.
-const APP_VERSION = "v5.3";
+const APP_VERSION = "v5.4";
 const APP_VERSION_DATE = "2026-05-12";
 
 // ─── Default priority list (seed) ───────────────────────────────────
@@ -199,6 +199,7 @@ const LS = {
   notifMode:       "bca_notif_mode",
   conf:            "bca_conf",
   lastNotif:       "bca_last_notif_id",
+  historyStatusFilter: "bca_history_status_filter",  // v5.4: persisted history status pick
 };
 
 // ─── Classification helpers (abstraction layer) ─────────────────────
@@ -305,6 +306,16 @@ function isCorrected(d) {
 function isConfirmed(d) {
   const meta = d.metadata || {};
   return meta.confirmed === true;
+}
+
+// v5.4: True if the user has explicitly marked this card as reviewed
+// without confirming or correcting. Drives the grey badge in history.
+// A "reviewed" card is one the user has chosen to skip but has seen -
+// it should NOT appear in the Unaddressed history filter. The clip is
+// NOT added to the training corpus (no Pi action on reviewed-only).
+function isReviewed(d) {
+  const meta = d.metadata || {};
+  return !!meta.reviewed_at;
 }
 
 // v5.2: Normalise a species label the same way the Pi promote-poll does
@@ -833,9 +844,13 @@ function SettingsSheet({ open, onClose, viewFilter, setViewFilter, notifMode, se
 // v5.2 props: onConfirm(detectionId) - records "BirdNET was right" + dismisses
 //             corpusCount: number of clips already in training corpus for this
 //               species (used for per-card tier dot)
+// v5.4 props: onReview(detectionId) - marks card as reviewed (no opinion).
+//             Wired to the × button when in history mode, so reviewing-but-not-
+//             confirming-or-correcting becomes an explicit action. Cards marked
+//             reviewed get a grey badge and drop out of the Unaddressed filter.
 function DetectionCard({ d, expanded, onToggle, onDismiss, onRestore, mode,
                          classification, onSetClassification, onSetManualLabel,
-                         onConfirm, corpusCount }) {
+                         onConfirm, onReview, corpusCount }) {
   const label = birdLabel(d);
   const meta = d.metadata || {};
   const conf = Math.round((d.confidence || 0) * 100);
@@ -849,12 +864,13 @@ function DetectionCard({ d, expanded, onToggle, onDismiss, onRestore, mode,
   // v5.2: user has confirmed BirdNET was right (separate from correction)
   const confirmed = isConfirmed(d);
 
-  // v5.2: do we show the Confirm/Dismiss buttons?
+  // v5.4: user has marked card as reviewed (no opinion either way)
+  const reviewed = isReviewed(d);
+
+  // Do we show the Confirm/Dismiss buttons?
   // Live: always show.
-  // History: only show if not already actioned (no correction, no confirm).
-  //   This lets users action old cards that aged out of the live feed
-  //   without being touched, while keeping already-actioned history clean.
-  const actioned = corrected || confirmed;
+  // History: show only if not already actioned in any way (no badge of any colour).
+  const actioned = corrected || confirmed || reviewed;
   const showActionButtons = mode === "live" || !actioned;
 
   // v3: regional plausibility
@@ -924,13 +940,16 @@ function DetectionCard({ d, expanded, onToggle, onDismiss, onRestore, mode,
         opacity: mode === "history" ? 0.85 : 1,
       }}>
 
-      {/* v5/v5.2: top-right corner content. Mutually exclusive:
-          - If the card has been corrected, show a green ✓ badge
-          - If the card has been confirmed (BirdNET was right), show a blue ✓
-          - Otherwise show the action buttons (Confirm ✓ and Dismiss ×)
-            in live mode, and also in history mode if the card has never
-            been actioned (aged out without review, or was Dismissed
-            with no opinion - those can still be upgraded). */}
+      {/* v5/v5.2/v5.4: top-right corner content. Mutually exclusive:
+          - Corrected (green ✓ badge) takes priority over confirmed
+          - Confirmed (blue ✓ badge) takes priority over reviewed
+          - Reviewed (grey · badge, v5.4) - "I looked at this, no opinion"
+          - Otherwise show the action buttons (Confirm ✓ and × Skip/Dismiss).
+            In live mode × dismisses to history. In history mode × marks
+            the card as reviewed so it leaves the Unaddressed filter.
+          v5.4: badges are FILLED with no border. Buttons have a thin white
+          border + outer shadow so they read as interactive. This stops the
+          "is it a button or a badge?" confusion. */}
       {corrected && (
         <div
           title={`You corrected this to: ${meta.manual_label}`}
@@ -963,6 +982,22 @@ function DetectionCard({ d, expanded, onToggle, onDismiss, onRestore, mode,
           }}
         >✓</div>
       )}
+      {reviewed && !confirmed && !corrected && (
+        <div
+          title="You marked this as reviewed (no opinion). Not in training corpus."
+          aria-label="Reviewed - no opinion"
+          style={{
+            position: "absolute", top: 8, right: 8,
+            width: 22, height: 22, borderRadius: "50%",
+            background: "var(--text-3)",
+            color: "#fff",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            fontSize: 13, fontWeight: 700, lineHeight: 1,
+            boxShadow: "0 1px 2px rgba(0, 0, 0, 0.15)",
+            zIndex: 2,
+          }}
+        >·</div>
+      )}
       {showActionButtons && !actioned && (
         <div style={{
           position: "absolute", top: 6, right: 6,
@@ -971,34 +1006,50 @@ function DetectionCard({ d, expanded, onToggle, onDismiss, onRestore, mode,
           {onConfirm && (
             <button
               onClick={(e) => handleAction(e, () => onConfirm(d.id))}
-              aria-label="Confirm correct"
+              aria-label="Confirm BirdNET's call"
               title="Confirm: BirdNET is right"
               style={{
-                width: 28, height: 28, borderRadius: "50%",
+                width: 32, height: 32, borderRadius: "50%",
                 background: "#1d4ed8",
                 color: "#fff",
-                border: "none", cursor: "pointer",
+                // v5.4: buttons get a white inner border so they're visually
+                // distinct from the flat-filled badges
+                border: "2px solid #fff",
+                cursor: "pointer",
                 fontSize: 14, fontWeight: 700, lineHeight: 1,
                 display: "flex", alignItems: "center", justifyContent: "center",
-                boxShadow: "0 1px 2px rgba(29, 78, 216, 0.35)",
+                boxShadow: "0 2px 6px rgba(29, 78, 216, 0.45)",
               }}
             >✓</button>
           )}
-          {(onDismiss || (mode === "history" && onConfirm)) && (
-            <button
-              onClick={(e) => handleAction(e, onDismiss || (() => {}))}
-              aria-label="Dismiss"
-              title="Dismiss: file without acting"
-              style={{
-                width: 28, height: 28, borderRadius: "50%",
-                background: "var(--surface)",
-                color: "var(--text-2)",
-                border: "1px solid var(--border)", cursor: "pointer",
-                fontSize: 16, fontWeight: 600, lineHeight: 1,
-                display: "flex", alignItems: "center", justifyContent: "center",
-              }}
-            >×</button>
-          )}
+          {/* The × button:
+              - in live mode: dismisses to history
+              - in history mode: marks the card as reviewed (drops out of Unaddressed)
+              v5.4 fix: previously this button did nothing in history because
+              onDismiss wasn't wired for history. */}
+          <button
+            onClick={(e) => handleAction(e, () => {
+              if (mode === "history" && onReview) {
+                onReview(d.id);
+              } else if (onDismiss) {
+                onDismiss();
+              }
+            })}
+            aria-label={mode === "history" ? "Mark reviewed" : "Dismiss"}
+            title={mode === "history"
+              ? "Skip: mark as reviewed (no opinion)"
+              : "Dismiss: file without acting"}
+            style={{
+              width: 32, height: 32, borderRadius: "50%",
+              background: "#fff",
+              color: "var(--text-2)",
+              border: "2px solid var(--border)",
+              cursor: "pointer",
+              fontSize: 18, fontWeight: 600, lineHeight: 1,
+              display: "flex", alignItems: "center", justifyContent: "center",
+              boxShadow: "0 2px 6px rgba(0, 0, 0, 0.12)",
+            }}
+          >×</button>
         </div>
       )}
 
@@ -1388,6 +1439,20 @@ function App() {
     normal: true,
   });
 
+  // v5.4: History status filter. One-of-four pick (single select):
+  //   - "all" (default): show everything regardless of badge state
+  //   - "unaddressed": show cards with no badge - haven't been actioned
+  //   - "confirmed": show only cards you tapped Confirm on (blue ✓)
+  //   - "corrected": show only cards you manually relabeled (green ✓)
+  //   - "reviewed": show only cards you marked reviewed/skipped (grey ·)
+  //
+  // Persisted in localStorage so it survives across sessions.
+  const [historyStatusFilter, setHistoryStatusFilter] = useState(() =>
+    lsGet(LS.historyStatusFilter, "all"));
+  useEffect(() => {
+    lsSet(LS.historyStatusFilter, historyStatusFilter);
+  }, [historyStatusFilter]);
+
   // Refs for callbacks that should not re-create the polling interval
   const classificationsRef = useRef(classifications);
   useEffect(() => { classificationsRef.current = classifications; }, [classifications]);
@@ -1541,6 +1606,7 @@ function App() {
   // Helper: shared filter applied to history items.
   // - Muted species are always excluded from history
   // - The historyClsFilter chips decide which of priority/suspect/normal show
+  // - v5.4: historyStatusFilter narrows to a single badge state
   const filterHistoryItems = useCallback((items) => {
     return items.filter(d => {
       const label = birdLabel(d);
@@ -1549,9 +1615,23 @@ function App() {
       if (cls === "priority" && !historyClsFilter.priority) return false;
       if (cls === "suspect"  && !historyClsFilter.suspect)  return false;
       if (cls === "normal"   && !historyClsFilter.normal)   return false;
+
+      // v5.4: status filter. Compute badge state for this card and check
+      // against the active filter. corrected wins over confirmed wins
+      // over reviewed - same precedence as the badge rendering.
+      if (historyStatusFilter !== "all") {
+        const c = isCorrected(d);
+        const cf = !c && isConfirmed(d);
+        const rv = !c && !cf && isReviewed(d);
+        const unaddressed = !c && !cf && !rv;
+        if (historyStatusFilter === "corrected"   && !c)   return false;
+        if (historyStatusFilter === "confirmed"   && !cf)  return false;
+        if (historyStatusFilter === "reviewed"    && !rv)  return false;
+        if (historyStatusFilter === "unaddressed" && !unaddressed) return false;
+      }
       return true;
     });
-  }, [classifications, historyClsFilter]);
+  }, [classifications, historyClsFilter, historyStatusFilter]);
 
   // History "Today" bucket: items dismissed today.
   // Derived from the live window (already in memory) so dismissing a card
@@ -1856,6 +1936,51 @@ function App() {
     }
   }, []);
 
+  // v5.4: mark a card as reviewed without confirming or correcting.
+  // Sets metadata.reviewed_at to current timestamp. The card stays in
+  // history but gets a grey badge and drops out of the Unaddressed
+  // history filter. Does NOT contribute to the training corpus (no Pi
+  // action wired to reviewed_at) - this is a "skip" state.
+  //
+  // Unlike confirm/correct, this is NOT recorded as having opinion about
+  // the species. It just records that the user has seen the card.
+  const setReviewed = useCallback(async (id) => {
+    const nowIso = new Date().toISOString();
+    let prevMeta = null;
+    setDetections(prev => prev.map(d => {
+      if (d.id !== id) return d;
+      prevMeta = d.metadata;
+      return {
+        ...d,
+        metadata: { ...(d.metadata || {}), reviewed_at: nowIso },
+      };
+    }));
+
+    try {
+      const current = await fetch(
+        `${SUPA_URL}/rest/v1/candidate_sightings?id=eq.${id}&select=metadata`,
+        { headers: SUPA_HEADERS }
+      );
+      const rows = await current.json();
+      const fullMeta = (rows && rows[0] && rows[0].metadata) || {};
+      const newMeta = { ...fullMeta, reviewed_at: nowIso };
+      const r = await fetch(
+        `${SUPA_URL}/rest/v1/candidate_sightings?id=eq.${id}`,
+        {
+          method: "PATCH",
+          headers: { ...SUPA_HEADERS, "Prefer": "return=minimal" },
+          body: JSON.stringify({ metadata: newMeta }),
+        }
+      );
+      if (!r.ok) throw new Error(`Supabase PATCH ${r.status}`);
+    } catch (e) {
+      setDetections(prev => prev.map(d => d.id === id
+        ? { ...d, metadata: prevMeta } : d));
+      setError("Couldn't mark reviewed");
+      setTimeout(() => setError(null), 3000);
+    }
+  }, []);
+
   async function requestNotif() {
     if (typeof Notification === "undefined") { setNotifPerm("unsupported"); return; }
     const p = await Notification.requestPermission();
@@ -2092,6 +2217,43 @@ function App() {
               })}
             </div>
 
+            {/* v5.4: Status filter chips. Single-select: shows only cards in
+                the chosen badge state. "All" returns to showing everything. */}
+            <div style={{
+              display: "flex", gap: 6, marginTop: 4, marginBottom: 8,
+              flexWrap: "wrap",
+            }}>
+              <span style={{
+                alignSelf: "center", fontSize: 11, color: "var(--text-3)",
+                fontWeight: 600, letterSpacing: 0.5, textTransform: "uppercase",
+                marginRight: 4,
+              }}>Status</span>
+              {[
+                { key: "all",         label: "All",         color: "var(--primary)" },
+                { key: "unaddressed", label: "Unaddressed", color: "var(--text-2)" },
+                { key: "confirmed",   label: "Confirmed",   color: "#1d4ed8" },
+                { key: "corrected",   label: "Corrected",   color: "var(--success)" },
+                { key: "reviewed",    label: "Reviewed",    color: "var(--text-3)" },
+              ].map(s => {
+                const active = historyStatusFilter === s.key;
+                return (
+                  <button key={s.key}
+                    onClick={() => setHistoryStatusFilter(s.key)}
+                    style={{
+                      display: "inline-flex", alignItems: "center", gap: 5,
+                      padding: "5px 11px", borderRadius: 999,
+                      background: active ? s.color : "var(--surface)",
+                      color: active ? "#fff" : "var(--text-2)",
+                      border: "1px solid " + (active ? s.color : "var(--border)"),
+                      fontSize: 12, fontWeight: 600, cursor: "pointer",
+                      opacity: active ? 1 : 0.7,
+                    }}>
+                    <span>{s.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+
             {/* Bucket sections. Each renders as a collapsible header
                 showing the count, then (when expanded) the cards. */}
             <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 4 }}>
@@ -2202,7 +2364,7 @@ function App() {
                                 expanded={expandedId === d.id}
                                 onToggle={() => setExpandedId(expandedId === d.id ? null : d.id)}
                                 onConfirm={setConfirmed}
-                                onDismiss={() => setDismissed(d.id, true)}
+                                onReview={setReviewed}
                                 mode="history"
                                 classification={getClassification(birdLabel(d), classifications)}
                                 onSetManualLabel={setManualLabel}
