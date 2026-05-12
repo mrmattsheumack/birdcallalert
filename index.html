@@ -100,14 +100,20 @@ const SUPA_HEADERS = {
 // The Pi runs a small HTTP server on port 8090 that streams clips and
 // accepts /promote requests for moving clips into the training corpus.
 // Port 8090 (not 8080) because solar-hub-pi/bridge.py owns 8080.
-// Only reachable from the same network as the Pi (home wifi).
-const PI_AUDIO_BASE = "http://eaglecam.local:8090";
+//
+// v5.3: routed through Tailscale instead of mDNS. The Pi's Tailscale IP
+// (100.99.80.39) is reachable from any device on the same tailnet,
+// whether on home wifi, mobile data, or any other network. The phone
+// must have Tailscale running for this to work. If Tailscale is down
+// audio playback will fail with a connection error - the rest of the
+// app (which talks to Supabase over HTTPS) is unaffected.
+const PI_AUDIO_BASE = "http://100.99.80.39:8090";
 
 // ─── App version ────────────────────────────────────────────────────
 // Bump on every deploy. Visible in the footer so we know which build is
 // running when investigating bug reports or screenshots.
-const APP_VERSION = "v5.2";
-const APP_VERSION_DATE = "2026-05-11";
+const APP_VERSION = "v5.3";
+const APP_VERSION_DATE = "2026-05-12";
 
 // ─── Default priority list (seed) ───────────────────────────────────
 // In v4 the user's classification (priority/normal/suspect/muted) lives
@@ -1139,15 +1145,20 @@ function DetectionCard({ d, expanded, onToggle, onDismiss, onRestore, mode,
                 ▶ Play clip in new tab
               </a>
               <div style={{ fontSize: 11, color: "var(--text-3)", marginTop: 6, lineHeight: 1.4 }}>
-                Only plays when your phone is on the same wifi as the Pi.
-                Opens in a new tab because Netlify serves HTTPS but the Pi
-                serves HTTP (browsers block inline mixed-content audio).
+                Plays when Tailscale is running on this device. Opens in
+                a new tab because Netlify serves HTTPS but the Pi serves
+                HTTP (browsers block inline mixed-content audio).
               </div>
             </div>
           )}
 
-          {/* Manual relabel input */}
-          {clipUrl && mode === "live" && (
+          {/* Manual relabel input - available in both live and history mode.
+              v5.3: previously gated to mode === "live" which meant cards
+              that aged out of live (or were dismissed/confirmed) couldn't
+              be relabelled. The 24h live window makes this problematic if
+              the user doesn't get to review a card within a day. Now
+              available everywhere. */}
+          {clipUrl && (
             <div style={{ marginBottom: 12 }}>
               <div style={{ fontSize: 10, color: "var(--text-3)",
                   fontWeight: 600, letterSpacing: 0.5,
@@ -1186,6 +1197,11 @@ function DetectionCard({ d, expanded, onToggle, onDismiss, onRestore, mode,
                   background: "var(--surface-2)", padding: "1px 4px",
                   borderRadius: 3, fontSize: 11 }}>training-corpus/&lt;label&gt;</code>
                 {" "}on the Pi. Used later for a custom classifier.
+                {confirmed && !corrected && (
+                  <span style={{ display: "block", marginTop: 4, color: "var(--text-2)" }}>
+                    Note: this will replace your previous confirmation.
+                  </span>
+                )}
               </div>
             </div>
           )}
@@ -1742,9 +1758,13 @@ function App() {
       if (d.id !== id) return d;
       prevMeta = d.metadata;
       prevDismissed = d.dismissed;
+      const optMeta = { ...(d.metadata || {}), manual_label: labelTrim };
+      // v5.3: if this card was previously confirmed, clear that flag so
+      // the badge updates from blue (confirmed) to green (corrected).
+      delete optMeta.confirmed;
       return {
         ...d,
-        metadata: { ...(d.metadata || {}), manual_label: labelTrim },
+        metadata: optMeta,
         dismissed: true,
       };
     }));
@@ -1758,7 +1778,15 @@ function App() {
       );
       const rows = await current.json();
       const fullMeta = (rows && rows[0] && rows[0].metadata) || {};
+      // v5.3: writing a correction overrides any prior confirmation.
+      // We remove the confirmed flag AND the v5.2 corpus-done sentinel
+      // so the Pi's promote-poll will re-process this row and copy the
+      // WAV to the corrected-species folder. Note: the WAV may already
+      // exist in the original species folder from a prior confirm; that
+      // stale copy stays there until a future corpus cleanup pass. TODO.
       const newMeta = { ...fullMeta, manual_label: labelTrim };
+      delete newMeta.confirmed;
+      delete newMeta._v5_2_corpus_done;
       const r = await fetch(
         `${SUPA_URL}/rest/v1/candidate_sightings?id=eq.${id}`,
         {

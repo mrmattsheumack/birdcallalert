@@ -1,5 +1,36 @@
 # Bird Call Alert — change notes
 
+## v5.3 — 2026-05-12
+
+**Tailscale audio routing AND history correction fix.** Two changes in one deploy: enables remote audio review via Tailscale, and unblocks the workflow gap where history cards couldn't be relabelled.
+
+### Web app changes
+
+**`PI_AUDIO_BASE` updated.** Changed from `http://eaglecam.local:8090` to `http://100.99.80.39:8090` (the Pi's Tailscale IP). The mDNS hostname only resolved on home wifi; the Tailscale IP is reachable from any device with Tailscale running.
+
+**Helper text on card updated** to reflect new routing model: "Plays when Tailscale is running on this device."
+
+**Manual label input now available in history.** Previously gated to `mode === "live"` — so if a card aged out of the 24-hour live window without being reviewed, or was confirmed/dismissed and later turned out to need correction, the user had no way to relabel it. Now the "What is this actually?" input appears on any expanded card with a clip, regardless of mode.
+
+**Confirm-then-correct flow fixed.** When a card is corrected (manual_label saved), `metadata.confirmed` is cleared if it was previously set, AND the `_v5_2_corpus_done` sentinel is cleared so the Pi's promote-poll re-processes the row and copies the WAV to the corrected-species folder. Badge updates from blue (confirmed) to green (corrected) automatically. A helper note appears on the input field warning the user that saving will replace a prior confirmation.
+
+**Known limitation (TODO for future):** When a card is confirm-then-corrected, the original WAV remains in the previously-confirmed species folder (e.g. confirm as Little Corella → WAV lands in `little-corella/`, later corrected to Sulphur Crested → new WAV lands in `sulphur-crested-cockatoo/`, but the original copy stays in `little-corella/`). This causes minor cross-class contamination in the training corpus. Mitigation: do a corpus cleanup pass before BoundaryBirds training, or have the Pi promote-poll detect orphaned confirmed-folder files and remove them when a manual_label appears.
+
+### No Pi changes
+
+Pi-side audio server unchanged. v5.2 promote-poll thread continues running as-is and handles the corrected-after-confirmed case naturally because `_v5_2_corpus_done` is cleared by the web app.
+
+### Tests to run after deploy
+
+1. Footer reads v5.3 ✓
+2. Audio playback works on home wifi (verifies nothing broke)
+3. Audio playback works on mobile data (verifies Tailscale routing)
+4. Open a history card with no badge: expand it, type a label, save → moves with green ✓ badge
+5. Open a history card with a blue ✓ (confirmed): expand it, type a different label, save → badge changes to green ✓
+6. Wait ~2 minutes, verify on Pi that the corrected clip landed in the new species folder
+
+---
+
 ## v5.2 — 2026-05-11 (third deploy same day)
 
 **Foundation for BoundaryBirds.** This is the deploy that sets up the data flywheel for our future home-grown classifier. Adds explicit confirm action, auto-dismiss-on-correct, per-card corpus visibility, and a Pi-side handler for confirmed clips.
