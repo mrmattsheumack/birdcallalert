@@ -113,7 +113,7 @@ const PI_AUDIO_BASE = "https://eaglecam.taile03fa1.ts.net:8443";
 // ─── App version ────────────────────────────────────────────────────
 // Bump on every deploy. Visible in the footer so we know which build is
 // running when investigating bug reports or screenshots.
-const APP_VERSION = "v5.4.2";
+const APP_VERSION = "v5.4.3";
 const APP_VERSION_DATE = "2026-05-13";
 
 // ─── Default priority list (seed) ───────────────────────────────────
@@ -2258,6 +2258,23 @@ function App() {
                     fontWeight: 600, cursor: "pointer",
                   }}>Adjust filter</button>
                 )}
+              </div>
+            )}
+
+            {/* v5.4.3: Alert count header, centered above the first tile.
+                Updates live as user actions cards (since liveItems is reactive). */}
+            {liveItems.length > 0 && (
+              <div style={{
+                textAlign: "center",
+                padding: "12px 0 4px",
+                fontSize: 13,
+                fontWeight: 600,
+                color: "var(--text-2)",
+                letterSpacing: 0.3,
+              }}>
+                {liveItems.length > 50
+                  ? `Showing 50 of ${liveItems.length} alerts`
+                  : `${liveItems.length} alert${liveItems.length === 1 ? "" : "s"}`}
               </div>
             )}
 
