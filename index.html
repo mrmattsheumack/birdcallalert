@@ -113,7 +113,7 @@ const PI_AUDIO_BASE = "https://eaglecam.taile03fa1.ts.net:8443";
 // ─── App version ────────────────────────────────────────────────────
 // Bump on every deploy. Visible in the footer so we know which build is
 // running when investigating bug reports or screenshots.
-const APP_VERSION = "v5.4.3";
+const APP_VERSION = "v5.5";
 const APP_VERSION_DATE = "2026-05-13";
 
 // ─── Default priority list (seed) ───────────────────────────────────
@@ -187,6 +187,57 @@ const NOTIF_MODES = {
 // species label.
 const CORPUS_TIER_READY = 30;
 const CORPUS_TIER_BUILDING = 15;
+
+// ─── v5.5: BirdNET post-processor remapping ──────────────────────────
+// Empirical remapping table derived from user correction history.
+// For each BirdNET prediction shown here, the user has corrected it
+// to a different species often enough that we should lead with the
+// most-likely real label and show BirdNET's original guess as subtext.
+//
+// `primary` = most-likely actual species when BirdNET predicts this
+// `alternates` = other frequent corrections, offered as quick-confirm chips
+// `confidence` = "high" (one dominant correction target) | "medium" | "low"
+//
+// Confirm button behaviour when remap is active: writes manual_label =
+// `primary` (treated as a correction), routing the WAV to the corrected
+// species' training-corpus folder rather than BirdNET's wrong folder.
+//
+// To regenerate this table, run the per-species accuracy query in
+// Supabase, then update entries here. Keep in sync with corpus reality.
+// Source data: 1678 detections analysed 2026-05-13.
+const BIRDNET_REMAPS = {
+  // ─── High-confidence remaps (single dominant correction target) ───
+  "Red Wattlebird":         { primary: "Little Wattlebird",        alternates: [],                                                confidence: "high" },
+  "Gang-gang Cockatoo":     { primary: "Sulphur-crested Cockatoo", alternates: [],                                                confidence: "high" },
+  "Eastern Rosella":        { primary: "Crimson Rosella",          alternates: [],                                                confidence: "high" },
+  "Olive-backed Oriole":    { primary: "Common Myna",              alternates: [],                                                confidence: "high" },
+
+  // ─── Medium-confidence remaps (clear primary + alternates) ────────
+  "Satin Bowerbird":        { primary: "Common Myna",              alternates: ["Little Wattlebird", "Polly", "Little Raven"],   confidence: "medium" },
+  "European Greenfinch":    { primary: "Cricket",                  alternates: ["Brown Thornbill"],                              confidence: "medium" },
+
+  // ─── Low-confidence remaps (suggestive, multiple targets) ─────────
+  "Australasian Swamphen":  { primary: "Polly",                    alternates: ["Common Myna"],                                  confidence: "low" },
+  "Eurasian Coot":          { primary: "Cricket",                  alternates: ["Little Corella"],                               confidence: "low" },
+};
+
+// Return remap info for a BirdNET prediction, or null if no remap applies.
+// Returned object: { primary, alternates, confidence, original }
+//   primary    : best-guess actual species name
+//   alternates : array of other likely species
+//   confidence : "high" | "medium" | "low"
+//   original   : the BirdNET prediction (passed through for display)
+function remapBirdNet(speciesGuess) {
+  if (!speciesGuess) return null;
+  const entry = BIRDNET_REMAPS[speciesGuess];
+  if (!entry) return null;
+  return {
+    primary: entry.primary,
+    alternates: entry.alternates || [],
+    confidence: entry.confidence,
+    original: speciesGuess,
+  };
+}
 
 // ─── localStorage keys ──────────────────────────────────────────────
 // In v4 the species classifications live in `bca_classifications` as a
@@ -873,6 +924,15 @@ function DetectionCard({ d, expanded, onToggle, onDismiss, onRestore, mode,
   // v5.4: user has marked card as reviewed (no opinion either way)
   const reviewed = isReviewed(d);
 
+  // v5.5: BirdNET post-processor remap. Applies only when:
+  //   - BirdNET's guess is in BIRDNET_REMAPS table, AND
+  //   - The user hasn't already acted on the card (no correction/confirm)
+  // When active, we display the remap.primary as the headline label and
+  // show BirdNET's original guess in subtext. Confirm button writes the
+  // remapped label as manual_label (so the Pi promotes to the right folder).
+  const remap = (!corrected && !confirmed) ? remapBirdNet(d.species_guess) : null;
+  const displaySpecies = remap ? remap.primary : d.species_guess;
+
   // Do we show the Confirm/Dismiss buttons?
   // Live: always show.
   // History: show only if not already actioned in any way (no badge of any colour).
@@ -1029,9 +1089,18 @@ function DetectionCard({ d, expanded, onToggle, onDismiss, onRestore, mode,
         }}>
           {onConfirm && (
             <button
-              onClick={(e) => handleAction(e, () => onConfirm(d.id))}
-              aria-label="Confirm BirdNET's call"
-              title="Confirm: BirdNET is right"
+              onClick={(e) => handleAction(e, () => {
+                // v5.5: when post-processor has remapped, "confirm" means
+                // "confirm the REMAPPED species, not BirdNET's". Write as
+                // manual_label so the Pi promotes to the correct corpus folder.
+                if (remap && onSetManualLabel) {
+                  onSetManualLabel(d.id, remap.primary, clipFilename);
+                } else {
+                  onConfirm(d.id);
+                }
+              })}
+              aria-label={remap ? `Confirm as ${remap.primary}` : "Confirm BirdNET's call"}
+              title={remap ? `Confirm: ${remap.primary}` : "Confirm: BirdNET is right"}
               style={{
                 width: 32, height: 32, borderRadius: "50%",
                 background: "#1d4ed8",
@@ -1124,12 +1193,49 @@ function DetectionCard({ d, expanded, onToggle, onDismiss, onRestore, mode,
             {isSuspectCls && mode === "live" && !isPriorityCls && (
               <span style={{ color: "#ca8a04", marginRight: 6 }}>⚠</span>
             )}
-            {d.species_guess}
+            {displaySpecies}
           </div>
-          {meta.scientific_name && (
+          {/* v5.5: when post-processor has remapped this prediction, surface
+              BirdNET's original guess as small audit-trail text. Helps the
+              user spot when the remap looks wrong, and preserves trust by
+              not hiding the raw model output. */}
+          {remap && (
+            <div style={{ fontSize: 11, color: "var(--text-3)",
+                marginTop: 3, fontStyle: "italic" }}>
+              BirdNET said: {remap.original}
+              {remap.confidence === "low" && (
+                <span style={{ marginLeft: 6, color: "#ca8a04" }}>· uncertain</span>
+              )}
+            </div>
+          )}
+          {meta.scientific_name && !remap && (
             <div style={{ fontSize: 13, color: "var(--text-2)",
                 fontStyle: "italic", marginTop: 3 }}>
               {meta.scientific_name}
+            </div>
+          )}
+          {/* v5.5: quick-confirm chips for alternate likely species when
+              the remap has more than one common correction target. Tap a
+              chip to confirm THAT label instead of the primary. */}
+          {remap && remap.alternates.length > 0 && mode === "live" && (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 4,
+                marginTop: 6 }}>
+              <span style={{ fontSize: 11, color: "var(--text-3)",
+                  alignSelf: "center", marginRight: 2 }}>or:</span>
+              {remap.alternates.map(alt => (
+                <button
+                  key={alt}
+                  onClick={(e) => handleAction(e, () => onSetManualLabel(d.id, alt, clipFilename))}
+                  style={{
+                    fontSize: 11, padding: "2px 8px",
+                    background: "transparent", color: "var(--text-2)",
+                    border: "1px solid var(--border)",
+                    borderRadius: 999, cursor: "pointer",
+                    whiteSpace: "nowrap",
+                  }}
+                  title={`Confirm as ${alt}`}
+                >{alt}</button>
+              ))}
             </div>
           )}
           {/* Manual relabel chip if set */}
