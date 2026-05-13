@@ -113,7 +113,7 @@ const PI_AUDIO_BASE = "https://eaglecam.taile03fa1.ts.net:8443";
 // ─── App version ────────────────────────────────────────────────────
 // Bump on every deploy. Visible in the footer so we know which build is
 // running when investigating bug reports or screenshots.
-const APP_VERSION = "v5.4.1";
+const APP_VERSION = "v5.4.2";
 const APP_VERSION_DATE = "2026-05-13";
 
 // ─── Default priority list (seed) ───────────────────────────────────
@@ -849,9 +849,14 @@ function SettingsSheet({ open, onClose, viewFilter, setViewFilter, notifMode, se
 //             Wired to the × button when in history mode, so reviewing-but-not-
 //             confirming-or-correcting becomes an explicit action. Cards marked
 //             reviewed get a grey badge and drop out of the Unaddressed filter.
+// v5.4.2 props: labelSuggestions: deduped sorted list of strings combining
+//             prior manual_labels and BirdNET species_guess values across
+//             all loaded detections. Used to drive autocomplete on the
+//             "what is this actually?" input. Prevents duplicate variants
+//             like "Common Myna" vs "Common Mynah".
 function DetectionCard({ d, expanded, onToggle, onDismiss, onRestore, mode,
                          classification, onSetClassification, onSetManualLabel,
-                         onConfirm, onReview, corpusCount }) {
+                         onConfirm, onReview, corpusCount, labelSuggestions }) {
   const label = birdLabel(d);
   const meta = d.metadata || {};
   const conf = Math.round((d.confidence || 0) * 100);
@@ -885,6 +890,24 @@ function DetectionCard({ d, expanded, onToggle, onDismiss, onRestore, mode,
   // v4: manual label persisted in the row's metadata
   const [manualLabelDraft, setManualLabelDraft] = useState(meta.manual_label || "");
   const [manualSaving, setManualSaving] = useState(false);
+
+  // v5.4.2: autocomplete dropdown state and filtered suggestions
+  const [suggestionsOpen, setSuggestionsOpen] = useState(false);
+  const filteredSuggestions = useMemo(() => {
+    if (!labelSuggestions || labelSuggestions.length === 0) return [];
+    const q = (manualLabelDraft || "").trim().toLowerCase();
+    if (q.length < 2) return [];
+    // Two-bucket ranking: exact-prefix matches first, then substring matches
+    const prefix = [];
+    const substring = [];
+    for (const s of labelSuggestions) {
+      const lower = s.toLowerCase();
+      if (lower === q) continue;  // skip exact match (no point suggesting current input)
+      if (lower.startsWith(q)) prefix.push(s);
+      else if (lower.includes(q)) substring.push(s);
+    }
+    return [...prefix, ...substring].slice(0, 6);
+  }, [manualLabelDraft, labelSuggestions]);
 
   // Stop propagation so action button clicks don't toggle the card
   function handleAction(e, fn) {
@@ -1214,21 +1237,82 @@ function DetectionCard({ d, expanded, onToggle, onDismiss, onRestore, mode,
                   textTransform: "uppercase", marginBottom: 6 }}>
                 What is this actually?
               </div>
-              <div style={{ display: "flex", gap: 6 }}>
-                <input
-                  type="text"
-                  value={manualLabelDraft}
-                  onChange={(e) => { e.stopPropagation(); setManualLabelDraft(e.target.value); }}
-                  onClick={(e) => e.stopPropagation()}
-                  placeholder="e.g. Bell Miner, or 'unknown' if not sure"
-                  style={{
-                    flex: 1, padding: "8px 10px",
-                    border: "1px solid var(--border)",
-                    borderRadius: "var(--r-sm)",
-                    fontSize: 14, fontFamily: "inherit",
-                    background: "var(--surface)",
-                  }}
-                />
+              <div style={{ display: "flex", gap: 6, position: "relative" }}>
+                <div style={{ flex: 1, position: "relative" }}>
+                  <input
+                    type="text"
+                    value={manualLabelDraft}
+                    onChange={(e) => {
+                      e.stopPropagation();
+                      setManualLabelDraft(e.target.value);
+                      setSuggestionsOpen(true);
+                    }}
+                    onFocus={() => setSuggestionsOpen(true)}
+                    onBlur={() => {
+                      // Defer the close so a click on a suggestion item can register
+                      setTimeout(() => setSuggestionsOpen(false), 150);
+                    }}
+                    onClick={(e) => e.stopPropagation()}
+                    placeholder="e.g. Bell Miner, or 'unknown' if not sure"
+                    style={{
+                      width: "100%", padding: "8px 10px",
+                      border: "1px solid var(--border)",
+                      borderRadius: "var(--r-sm)",
+                      fontSize: 14, fontFamily: "inherit",
+                      background: "var(--surface)",
+                      boxSizing: "border-box",
+                    }}
+                  />
+                  {/* v5.4.2: autocomplete dropdown. Shows when input has 2+
+                      chars and there are matching suggestions. Suggestions
+                      come from your prior manual_labels + BirdNET's species
+                      guesses across all loaded detections. */}
+                  {suggestionsOpen && filteredSuggestions.length > 0 && (
+                    <div
+                      onClick={(e) => e.stopPropagation()}
+                      style={{
+                        position: "absolute",
+                        top: "calc(100% + 2px)",
+                        left: 0, right: 0,
+                        background: "#fff",
+                        border: "1px solid var(--border)",
+                        borderRadius: "var(--r-sm)",
+                        boxShadow: "0 4px 12px rgba(0, 0, 0, 0.1)",
+                        maxHeight: 220,
+                        overflowY: "auto",
+                        zIndex: 10,
+                      }}
+                    >
+                      {filteredSuggestions.map((s, i) => (
+                        <button
+                          key={s}
+                          // onMouseDown fires before onBlur, so the suggestion
+                          // click registers before the input deferred-close fires
+                          onMouseDown={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            setManualLabelDraft(s);
+                            setSuggestionsOpen(false);
+                          }}
+                          style={{
+                            display: "block", width: "100%", textAlign: "left",
+                            padding: "8px 10px",
+                            background: "transparent",
+                            border: "none",
+                            borderBottom: i < filteredSuggestions.length - 1
+                              ? "1px solid var(--border)" : "none",
+                            fontSize: 14,
+                            fontFamily: "inherit",
+                            color: "var(--text)",
+                            cursor: "pointer",
+                          }}
+                        >
+                          {s}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
                 <button
                   onClick={handleSaveManualLabel}
                   disabled={manualSaving || !manualLabelDraft.trim() || manualLabelDraft.trim() === (meta.manual_label || "")}
@@ -1790,6 +1874,39 @@ function App() {
       .sort((a, b) => b.latestTs - a.latestTs);
   }, [detections]);
 
+  // v5.4.2: deduped label suggestions for the manual_label input autocomplete.
+  // Combines two sources:
+  //   1. Prior manual_label values (your typed corrections from history)
+  //   2. BirdNET species_guess values (every species name BirdNET has used)
+  // Sources are merged and ranked by FREQUENCY of use across all loaded
+  // detections, so common labels surface first. Includes both live (24h)
+  // detections and any history buckets the user has loaded.
+  const labelSuggestions = useMemo(() => {
+    const counts = new Map();
+    function bump(s) {
+      if (!s) return;
+      const trimmed = s.trim();
+      if (!trimmed) return;
+      counts.set(trimmed, (counts.get(trimmed) || 0) + 1);
+    }
+    // Live detections
+    for (const d of detections) {
+      bump(d.species_guess);
+      bump((d.metadata || {}).manual_label);
+    }
+    // History buckets - whatever's loaded
+    for (const bucket of Object.values(historyBuckets)) {
+      if (!bucket || !bucket.items) continue;
+      for (const d of bucket.items) {
+        bump(d.species_guess);
+        bump((d.metadata || {}).manual_label);
+      }
+    }
+    return [...counts.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .map(([label]) => label);
+  }, [detections, historyBuckets]);
+
   // Dismiss / un-dismiss a detection. Optimistically updates local state
   // so the UI is instant, then PATCHes Supabase. If the PATCH fails we
   // roll back.
@@ -2161,6 +2278,7 @@ function App() {
                     }}
                     onSetManualLabel={setManualLabel}
                     corpusCount={corpusCountFor(d)}
+                    labelSuggestions={labelSuggestions}
                   />
                 ))}
                 {liveItems.length > 50 && (
@@ -2367,6 +2485,7 @@ function App() {
                                 classification={getClassification(birdLabel(d), classifications)}
                                 onSetManualLabel={setManualLabel}
                                 corpusCount={corpusCountFor(d)}
+                                labelSuggestions={labelSuggestions}
                               />
                             ))}
                           </div>
