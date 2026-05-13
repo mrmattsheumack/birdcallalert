@@ -101,19 +101,20 @@ const SUPA_HEADERS = {
 // accepts /promote requests for moving clips into the training corpus.
 // Port 8090 (not 8080) because solar-hub-pi/bridge.py owns 8080.
 //
-// v5.3: routed through Tailscale instead of mDNS. The Pi's Tailscale IP
-// (100.99.80.39) is reachable from any device on the same tailnet,
-// whether on home wifi, mobile data, or any other network. The phone
-// must have Tailscale running for this to work. If Tailscale is down
-// audio playback will fail with a connection error - the rest of the
-// app (which talks to Supabase over HTTPS) is unaffected.
-const PI_AUDIO_BASE = "http://100.99.80.39:8090";
+// v5.3: routed through Tailscale instead of mDNS using the raw IP.
+// v5.4.1: now routed through Tailscale Serve which provides HTTPS via a
+// Let's Encrypt cert on the .ts.net domain. This means audio can play
+// INLINE in the HTTPS web app (the previous HTTP IP triggered mixed-
+// content blocking, forcing "open in new tab"). Phone needs Tailscale
+// running for this to resolve. The Tailscale Serve config on the Pi:
+//   https://eaglecam.taile03fa1.ts.net:8443  ->  http://localhost:8090
+const PI_AUDIO_BASE = "https://eaglecam.taile03fa1.ts.net:8443";
 
 // ─── App version ────────────────────────────────────────────────────
 // Bump on every deploy. Visible in the footer so we know which build is
 // running when investigating bug reports or screenshots.
-const APP_VERSION = "v5.4";
-const APP_VERSION_DATE = "2026-05-12";
+const APP_VERSION = "v5.4.1";
+const APP_VERSION_DATE = "2026-05-13";
 
 // ─── Default priority list (seed) ───────────────────────────────────
 // In v4 the user's classification (priority/normal/suspect/muted) lives
@@ -1170,9 +1171,12 @@ function DetectionCard({ d, expanded, onToggle, onDismiss, onRestore, mode,
         <div style={{ marginTop: 12, paddingTop: 12,
             borderTop: "1px solid var(--border)" }}>
 
-          {/* Audio clip - opens in new tab. We can't inline-play because the
-              app is HTTPS (Netlify) and the Pi serves HTTP. Browsers block
-              mixed-content media. New-tab navigation works. */}
+          {/* v5.4.1: Inline audio player. Previously this was a "Play in new
+              tab" link because the Pi served plain HTTP and the HTTPS web app
+              couldn't mix-content-play inline. Now the Pi serves audio over
+              HTTPS via Tailscale Serve, so the audio element works inline.
+              Requires Tailscale running on the device for the .ts.net
+              hostname to resolve correctly. */}
           {clipUrl && (
             <div style={{ marginBottom: 12 }}>
               <div style={{ fontSize: 10, color: "var(--text-3)",
@@ -1180,25 +1184,19 @@ function DetectionCard({ d, expanded, onToggle, onDismiss, onRestore, mode,
                   textTransform: "uppercase", marginBottom: 6 }}>
                 Audio clip
               </div>
-              <a
-                href={clipUrl}
-                target="_blank"
-                rel="noopener noreferrer"
+              <audio
+                controls
+                preload="none"
+                src={clipUrl}
                 onClick={(e) => e.stopPropagation()}
                 style={{
-                  display: "inline-flex", alignItems: "center", gap: 8,
-                  padding: "10px 14px", textDecoration: "none",
-                  background: "var(--primary)", color: "#fff",
+                  width: "100%",
+                  height: 40,
                   borderRadius: "var(--r-sm)",
-                  fontSize: 13, fontWeight: 600,
                 }}
-              >
-                ▶ Play clip in new tab
-              </a>
-              <div style={{ fontSize: 11, color: "var(--text-3)", marginTop: 6, lineHeight: 1.4 }}>
-                Plays when Tailscale is running on this device. Opens in
-                a new tab because Netlify serves HTTPS but the Pi serves
-                HTTP (browsers block inline mixed-content audio).
+              />
+              <div style={{ fontSize: 11, color: "var(--text-3)", marginTop: 4, lineHeight: 1.4 }}>
+                Plays when Tailscale is running on this device.
               </div>
             </div>
           )}
