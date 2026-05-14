@@ -113,7 +113,7 @@ const PI_AUDIO_BASE = "https://eaglecam.taile03fa1.ts.net:8443";
 // ─── App version ────────────────────────────────────────────────────
 // Bump on every deploy. Visible in the footer so we know which build is
 // running when investigating bug reports or screenshots.
-const APP_VERSION = "v5.5";
+const APP_VERSION = "v5.6";
 const APP_VERSION_DATE = "2026-05-13";
 
 // ─── Default priority list (seed) ───────────────────────────────────
@@ -197,14 +197,22 @@ const CORPUS_TIER_BUILDING = 15;
 // `primary` = most-likely actual species when BirdNET predicts this
 // `alternates` = other frequent corrections, offered as quick-confirm chips
 // `confidence` = "high" (one dominant correction target) | "medium" | "low"
+// `unknown` = true for "wildcard" BirdNET labels that have NO consistent
+//   real identity. These show a headline of "Unknown" instead of a
+//   species, the confirm button is hidden (confirming "Unknown" would
+//   create a junk training-corpus folder), and the user must pick an
+//   alternate chip or type a manual correction. The `alternates` array
+//   becomes the candidate chips. Add wildcard BirdNET labels here as
+//   they're identified — this is a shared funnel for meaningless labels.
 //
-// Confirm button behaviour when remap is active: writes manual_label =
-// `primary` (treated as a correction), routing the WAV to the corrected
-// species' training-corpus folder rather than BirdNET's wrong folder.
+// Confirm button behaviour when remap is active (non-unknown): writes
+// manual_label = `primary` (treated as a correction), routing the WAV to
+// the corrected species' training-corpus folder rather than BirdNET's.
 //
 // To regenerate this table, run the per-species accuracy query in
 // Supabase, then update entries here. Keep in sync with corpus reality.
-// Source data: 1678 detections analysed 2026-05-13.
+// Source data: 1678 detections analysed 2026-05-13; remap value
+// validated 2026-05-14 (remapped bucket: raw BirdNET 0/26, remap 20/26).
 const BIRDNET_REMAPS = {
   // ─── High-confidence remaps (single dominant correction target) ───
   "Red Wattlebird":         { primary: "Little Wattlebird",        alternates: [],                                                confidence: "high" },
@@ -218,15 +226,20 @@ const BIRDNET_REMAPS = {
 
   // ─── Low-confidence remaps (suggestive, multiple targets) ─────────
   "Australasian Swamphen":  { primary: "Polly",                    alternates: ["Common Myna"],                                  confidence: "low" },
-  "Eurasian Coot":          { primary: "Cricket",                  alternates: ["Little Corella"],                               confidence: "low" },
+
+  // ─── Unknown funnel (wildcard labels with no consistent identity) ──
+  // Eurasian Coot: validated 2026-05-14 as a wildcard — 3 detections
+  // resolved to Cricket / Little Corella / Common Myna with no pattern.
+  "Eurasian Coot":          { unknown: true, primary: "Unknown",   alternates: ["Cricket", "Little Corella", "Common Myna"],     confidence: "low" },
 };
 
 // Return remap info for a BirdNET prediction, or null if no remap applies.
-// Returned object: { primary, alternates, confidence, original }
-//   primary    : best-guess actual species name
-//   alternates : array of other likely species
+// Returned object: { primary, alternates, confidence, original, unknown }
+//   primary    : best-guess actual species name (or "Unknown" for funnel)
+//   alternates : other likely species (candidate chips for unknown funnel)
 //   confidence : "high" | "medium" | "low"
 //   original   : the BirdNET prediction (passed through for display)
+//   unknown    : true if this is a wildcard label with no real identity
 function remapBirdNet(speciesGuess) {
   if (!speciesGuess) return null;
   const entry = BIRDNET_REMAPS[speciesGuess];
@@ -236,6 +249,7 @@ function remapBirdNet(speciesGuess) {
     alternates: entry.alternates || [],
     confidence: entry.confidence,
     original: speciesGuess,
+    unknown: entry.unknown === true,
   };
 }
 
@@ -1087,7 +1101,11 @@ function DetectionCard({ d, expanded, onToggle, onDismiss, onRestore, mode,
           position: "absolute", top: 6, right: 6,
           display: "flex", gap: 4, zIndex: 2,
         }}>
-          {onConfirm && (
+          {/* v5.6: confirm button hidden for unknown-funnel remaps. There's
+              no single species to confirm — the user must pick a candidate
+              chip or type a manual correction. Confirming "Unknown" would
+              create a junk training-corpus/unknown/ folder on the Pi. */}
+          {onConfirm && !(remap && remap.unknown) && (
             <button
               onClick={(e) => handleAction(e, () => {
                 // v5.5: when post-processor has remapped, "confirm" means
@@ -1185,7 +1203,9 @@ function DetectionCard({ d, expanded, onToggle, onDismiss, onRestore, mode,
       <div style={{ display: "flex", alignItems: "flex-start",
           justifyContent: "space-between", gap: 12 }}>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 17, fontWeight: 600, color: "var(--text)",
+          <div style={{ fontSize: 17, fontWeight: 600,
+              color: (remap && remap.unknown) ? "var(--text-3)" : "var(--text)",
+              fontStyle: (remap && remap.unknown) ? "italic" : "normal",
               lineHeight: 1.25 }}>
             {isPriorityCls && mode === "live" && (
               <span style={{ color: "var(--accent)", marginRight: 6 }}>★</span>
@@ -1203,8 +1223,11 @@ function DetectionCard({ d, expanded, onToggle, onDismiss, onRestore, mode,
             <div style={{ fontSize: 11, color: "var(--text-3)",
                 marginTop: 3, fontStyle: "italic" }}>
               BirdNET said: {remap.original}
-              {remap.confidence === "low" && (
+              {remap.confidence === "low" && !remap.unknown && (
                 <span style={{ marginLeft: 6, color: "#ca8a04" }}>· uncertain</span>
+              )}
+              {remap.unknown && (
+                <span style={{ marginLeft: 6, color: "#ca8a04" }}>· no reliable match</span>
               )}
             </div>
           )}
@@ -1216,12 +1239,17 @@ function DetectionCard({ d, expanded, onToggle, onDismiss, onRestore, mode,
           )}
           {/* v5.5: quick-confirm chips for alternate likely species when
               the remap has more than one common correction target. Tap a
-              chip to confirm THAT label instead of the primary. */}
+              chip to confirm THAT label instead of the primary.
+              v5.6: for unknown-funnel remaps these are the ONLY way to
+              label the card (no confirm button), and the lead-in reads
+              "could be:" rather than "or:". */}
           {remap && remap.alternates.length > 0 && mode === "live" && (
             <div style={{ display: "flex", flexWrap: "wrap", gap: 4,
                 marginTop: 6 }}>
               <span style={{ fontSize: 11, color: "var(--text-3)",
-                  alignSelf: "center", marginRight: 2 }}>or:</span>
+                  alignSelf: "center", marginRight: 2 }}>
+                {remap.unknown ? "could be:" : "or:"}
+              </span>
               {remap.alternates.map(alt => (
                 <button
                   key={alt}
@@ -1974,10 +2002,13 @@ function App() {
       e.maxConf = Math.max(e.maxConf, d.confidence || 0);
       m.set(label, e);
     }
-    // Add lastSeen as ISO string for easy display, sorted by recency
+    // v5.6: sort the species list alphabetically by common name (was
+    // previously sorted by recency). A-Z makes a specific species easy
+    // to find in Settings, which matters more as the list grows. The
+    // per-species "last seen Xh" line still carries the recency info.
     return [...m.values()]
       .map(e => ({ ...e, lastSeen: e.latestTs ? new Date(e.latestTs).toISOString() : null }))
-      .sort((a, b) => b.latestTs - a.latestTs);
+      .sort((a, b) => (a.common || "").localeCompare(b.common || ""));
   }, [detections]);
 
   // v5.4.2: deduped label suggestions for the manual_label input autocomplete.
