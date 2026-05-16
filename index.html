@@ -113,7 +113,7 @@ const PI_AUDIO_BASE = "https://eaglecam.taile03fa1.ts.net:8443";
 // ─── App version ────────────────────────────────────────────────────
 // Bump on every deploy. Visible in the footer so we know which build is
 // running when investigating bug reports or screenshots.
-const APP_VERSION = "v5.6";
+const APP_VERSION = "v5.5";
 const APP_VERSION_DATE = "2026-05-13";
 
 // ─── Default priority list (seed) ───────────────────────────────────
@@ -197,22 +197,14 @@ const CORPUS_TIER_BUILDING = 15;
 // `primary` = most-likely actual species when BirdNET predicts this
 // `alternates` = other frequent corrections, offered as quick-confirm chips
 // `confidence` = "high" (one dominant correction target) | "medium" | "low"
-// `unknown` = true for "wildcard" BirdNET labels that have NO consistent
-//   real identity. These show a headline of "Unknown" instead of a
-//   species, the confirm button is hidden (confirming "Unknown" would
-//   create a junk training-corpus folder), and the user must pick an
-//   alternate chip or type a manual correction. The `alternates` array
-//   becomes the candidate chips. Add wildcard BirdNET labels here as
-//   they're identified — this is a shared funnel for meaningless labels.
 //
-// Confirm button behaviour when remap is active (non-unknown): writes
-// manual_label = `primary` (treated as a correction), routing the WAV to
-// the corrected species' training-corpus folder rather than BirdNET's.
+// Confirm button behaviour when remap is active: writes manual_label =
+// `primary` (treated as a correction), routing the WAV to the corrected
+// species' training-corpus folder rather than BirdNET's wrong folder.
 //
 // To regenerate this table, run the per-species accuracy query in
 // Supabase, then update entries here. Keep in sync with corpus reality.
-// Source data: 1678 detections analysed 2026-05-13; remap value
-// validated 2026-05-14 (remapped bucket: raw BirdNET 0/26, remap 20/26).
+// Source data: 1678 detections analysed 2026-05-13.
 const BIRDNET_REMAPS = {
   // ─── High-confidence remaps (single dominant correction target) ───
   "Red Wattlebird":         { primary: "Little Wattlebird",        alternates: [],                                                confidence: "high" },
@@ -226,20 +218,15 @@ const BIRDNET_REMAPS = {
 
   // ─── Low-confidence remaps (suggestive, multiple targets) ─────────
   "Australasian Swamphen":  { primary: "Polly",                    alternates: ["Common Myna"],                                  confidence: "low" },
-
-  // ─── Unknown funnel (wildcard labels with no consistent identity) ──
-  // Eurasian Coot: validated 2026-05-14 as a wildcard — 3 detections
-  // resolved to Cricket / Little Corella / Common Myna with no pattern.
-  "Eurasian Coot":          { unknown: true, primary: "Unknown",   alternates: ["Cricket", "Little Corella", "Common Myna"],     confidence: "low" },
+  "Eurasian Coot":          { primary: "Cricket",                  alternates: ["Little Corella"],                               confidence: "low" },
 };
 
 // Return remap info for a BirdNET prediction, or null if no remap applies.
-// Returned object: { primary, alternates, confidence, original, unknown }
-//   primary    : best-guess actual species name (or "Unknown" for funnel)
-//   alternates : other likely species (candidate chips for unknown funnel)
+// Returned object: { primary, alternates, confidence, original }
+//   primary    : best-guess actual species name
+//   alternates : array of other likely species
 //   confidence : "high" | "medium" | "low"
 //   original   : the BirdNET prediction (passed through for display)
-//   unknown    : true if this is a wildcard label with no real identity
 function remapBirdNet(speciesGuess) {
   if (!speciesGuess) return null;
   const entry = BIRDNET_REMAPS[speciesGuess];
@@ -249,7 +236,6 @@ function remapBirdNet(speciesGuess) {
     alternates: entry.alternates || [],
     confidence: entry.confidence,
     original: speciesGuess,
-    unknown: entry.unknown === true,
   };
 }
 
@@ -921,7 +907,7 @@ function SettingsSheet({ open, onClose, viewFilter, setViewFilter, notifMode, se
 //             like "Common Myna" vs "Common Mynah".
 function DetectionCard({ d, expanded, onToggle, onDismiss, onRestore, mode,
                          classification, onSetClassification, onSetManualLabel,
-                         onConfirm, onReview, corpusCount, labelSuggestions }) {
+                         onConfirm, onReview, onDiscard, corpusCount, labelSuggestions }) {
   const label = birdLabel(d);
   const meta = d.metadata || {};
   const conf = Math.round((d.confidence || 0) * 100);
@@ -1101,11 +1087,7 @@ function DetectionCard({ d, expanded, onToggle, onDismiss, onRestore, mode,
           position: "absolute", top: 6, right: 6,
           display: "flex", gap: 4, zIndex: 2,
         }}>
-          {/* v5.6: confirm button hidden for unknown-funnel remaps. There's
-              no single species to confirm — the user must pick a candidate
-              chip or type a manual correction. Confirming "Unknown" would
-              create a junk training-corpus/unknown/ folder on the Pi. */}
-          {onConfirm && !(remap && remap.unknown) && (
+          {onConfirm && (
             <button
               onClick={(e) => handleAction(e, () => {
                 // v5.5: when post-processor has remapped, "confirm" means
@@ -1161,6 +1143,33 @@ function DetectionCard({ d, expanded, onToggle, onDismiss, onRestore, mode,
               boxShadow: "0 2px 6px rgba(0, 0, 0, 0.12)",
             }}
           >×</button>
+          {/* v5.7: discard button - history mode only.
+              Sets metadata.discarded=true via Supabase PATCH, which the
+              Pi's discard-poll picks up within 2 min and moves the WAV
+              from training-corpus to _quarantine. Wrapped in
+              window.confirm because this is a destructive-feeling action
+              even though it's reversible. */}
+          {mode === "history" && onDiscard && (
+            <button
+              onClick={(e) => handleAction(e, () => {
+                if (window.confirm("Discard this clip? It'll be removed from training.")) {
+                  onDiscard(d.id);
+                }
+              })}
+              aria-label="Discard from training corpus"
+              title="Discard: remove this clip from training"
+              style={{
+                width: 32, height: 32, borderRadius: "50%",
+                background: "#b91c1c",
+                color: "#fff",
+                border: "2px solid #fff",
+                cursor: "pointer",
+                fontSize: 14, fontWeight: 700, lineHeight: 1,
+                display: "flex", alignItems: "center", justifyContent: "center",
+                boxShadow: "0 2px 6px rgba(185, 28, 28, 0.45)",
+              }}
+            >🗑</button>
+          )}
         </div>
       )}
 
@@ -1203,9 +1212,7 @@ function DetectionCard({ d, expanded, onToggle, onDismiss, onRestore, mode,
       <div style={{ display: "flex", alignItems: "flex-start",
           justifyContent: "space-between", gap: 12 }}>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 17, fontWeight: 600,
-              color: (remap && remap.unknown) ? "var(--text-3)" : "var(--text)",
-              fontStyle: (remap && remap.unknown) ? "italic" : "normal",
+          <div style={{ fontSize: 17, fontWeight: 600, color: "var(--text)",
               lineHeight: 1.25 }}>
             {isPriorityCls && mode === "live" && (
               <span style={{ color: "var(--accent)", marginRight: 6 }}>★</span>
@@ -1223,11 +1230,8 @@ function DetectionCard({ d, expanded, onToggle, onDismiss, onRestore, mode,
             <div style={{ fontSize: 11, color: "var(--text-3)",
                 marginTop: 3, fontStyle: "italic" }}>
               BirdNET said: {remap.original}
-              {remap.confidence === "low" && !remap.unknown && (
+              {remap.confidence === "low" && (
                 <span style={{ marginLeft: 6, color: "#ca8a04" }}>· uncertain</span>
-              )}
-              {remap.unknown && (
-                <span style={{ marginLeft: 6, color: "#ca8a04" }}>· no reliable match</span>
               )}
             </div>
           )}
@@ -1239,17 +1243,12 @@ function DetectionCard({ d, expanded, onToggle, onDismiss, onRestore, mode,
           )}
           {/* v5.5: quick-confirm chips for alternate likely species when
               the remap has more than one common correction target. Tap a
-              chip to confirm THAT label instead of the primary.
-              v5.6: for unknown-funnel remaps these are the ONLY way to
-              label the card (no confirm button), and the lead-in reads
-              "could be:" rather than "or:". */}
+              chip to confirm THAT label instead of the primary. */}
           {remap && remap.alternates.length > 0 && mode === "live" && (
             <div style={{ display: "flex", flexWrap: "wrap", gap: 4,
                 marginTop: 6 }}>
               <span style={{ fontSize: 11, color: "var(--text-3)",
-                  alignSelf: "center", marginRight: 2 }}>
-                {remap.unknown ? "could be:" : "or:"}
-              </span>
+                  alignSelf: "center", marginRight: 2 }}>or:</span>
               {remap.alternates.map(alt => (
                 <button
                   key={alt}
@@ -2002,13 +2001,10 @@ function App() {
       e.maxConf = Math.max(e.maxConf, d.confidence || 0);
       m.set(label, e);
     }
-    // v5.6: sort the species list alphabetically by common name (was
-    // previously sorted by recency). A-Z makes a specific species easy
-    // to find in Settings, which matters more as the list grows. The
-    // per-species "last seen Xh" line still carries the recency info.
+    // Add lastSeen as ISO string for easy display, sorted by recency
     return [...m.values()]
       .map(e => ({ ...e, lastSeen: e.latestTs ? new Date(e.latestTs).toISOString() : null }))
-      .sort((a, b) => (a.common || "").localeCompare(b.common || ""));
+      .sort((a, b) => b.latestTs - a.latestTs);
   }, [detections]);
 
   // v5.4.2: deduped label suggestions for the manual_label input autocomplete.
@@ -2136,6 +2132,62 @@ function App() {
       setDetections(prev => prev.map(d => d.id === id
         ? { ...d, metadata: prevMeta, dismissed: prevDismissed } : d));
       setError("Couldn't save label");
+      setTimeout(() => setError(null), 3000);
+      return;
+    }
+  }, []);
+
+  // v5.7: discard a clip. Sets metadata.discarded=true + discarded_at.
+  // The Pi's discard-poll picks this up on next tick (within 2 min) and
+  // moves the WAV from training-corpus/<slug>/ to _quarantine/<slug>/.
+  // This is reversible - clearing metadata.discarded would let the v4
+  // promote flow re-promote the clip on next poll (assuming the WAV is
+  // restored from quarantine first). The web app does not currently
+  // expose an undiscard button - that's tomorrow's work.
+  const setDiscarded = useCallback(async (id) => {
+    // Optimistic local update so the card disappears from history
+    // immediately. We don't change dismissed - the row is already
+    // dismissed by definition (it's in history).
+    let prevMeta = null;
+    setDetections(prev => prev.map(d => {
+      if (d.id !== id) return d;
+      prevMeta = d.metadata;
+      const optMeta = {
+        ...(d.metadata || {}),
+        discarded: true,
+        discarded_at: new Date().toISOString(),
+      };
+      return { ...d, metadata: optMeta };
+    }));
+
+    // PATCH Supabase. Fetch existing metadata first to merge cleanly.
+    try {
+      const current = await fetch(
+        `${SUPA_URL}/rest/v1/candidate_sightings?id=eq.${id}&select=metadata`,
+        { headers: SUPA_HEADERS }
+      );
+      const rows = await current.json();
+      const fullMeta = (rows && rows[0] && rows[0].metadata) || {};
+      const newMeta = {
+        ...fullMeta,
+        discarded: true,
+        discarded_at: new Date().toISOString(),
+      };
+      const r = await fetch(
+        `${SUPA_URL}/rest/v1/candidate_sightings?id=eq.${id}`,
+        {
+          method: "PATCH",
+          headers: { ...SUPA_HEADERS, "Prefer": "return=minimal" },
+          body: JSON.stringify({ metadata: newMeta }),
+        }
+      );
+      if (!r.ok) throw new Error(`Supabase PATCH ${r.status}`);
+      setTimeout(() => { try { corpusRefreshRef.current?.(); } catch {} }, 1500);
+    } catch (e) {
+      // Roll back
+      setDetections(prev => prev.map(d => d.id === id
+        ? { ...d, metadata: prevMeta } : d));
+      setError("Couldn't discard clip");
       setTimeout(() => setError(null), 3000);
       return;
     }
@@ -2635,6 +2687,7 @@ function App() {
                                 onToggle={() => setExpandedId(expandedId === d.id ? null : d.id)}
                                 onConfirm={setConfirmed}
                                 onReview={setReviewed}
+                                onDiscard={setDiscarded}
                                 mode="history"
                                 classification={getClassification(birdLabel(d), classifications)}
                                 onSetManualLabel={setManualLabel}
