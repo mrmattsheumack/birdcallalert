@@ -1858,6 +1858,10 @@ function App() {
   // - v5.4: historyStatusFilter narrows to a single badge state
   const filterHistoryItems = useCallback((items) => {
     return items.filter(d => {
+      // v5.7: hide discarded rows. We're not building an "audit log" view
+      // yet - discarded clips should disappear from History so the user
+      // can see clear progress through the corpus cleanup task.
+      if (d.metadata && d.metadata.discarded === true) return false;
       // v5.7: species filter takes precedence - if "all" passes through.
       if (historySpeciesFilter !== "all") {
         if ((d.species_guess || "") !== historySpeciesFilter) return false;
@@ -2183,20 +2187,29 @@ function App() {
   // restored from quarantine first). The web app does not currently
   // expose an undiscard button - that's tomorrow's work.
   const setDiscarded = useCallback(async (id) => {
-    // Optimistic local update so the card disappears from history
-    // immediately. We don't change dismissed - the row is already
-    // dismissed by definition (it's in history).
     let prevMeta = null;
-    setDetections(prev => prev.map(d => {
+    const nowIso = new Date().toISOString();
+    const mutateRow = (d) => {
       if (d.id !== id) return d;
-      prevMeta = d.metadata;
-      const optMeta = {
-        ...(d.metadata || {}),
-        discarded: true,
-        discarded_at: new Date().toISOString(),
+      if (prevMeta === null) prevMeta = d.metadata;
+      return {
+        ...d,
+        metadata: {
+          ...(d.metadata || {}),
+          discarded: true,
+          discarded_at: nowIso,
+        },
       };
-      return { ...d, metadata: optMeta };
-    }));
+    };
+    setDetections(prev => prev.map(mutateRow));
+    setHistoryBuckets(prev => {
+      const next = {};
+      for (const [bucket, entry] of Object.entries(prev)) {
+        if (!entry || !entry.items) { next[bucket] = entry; continue; }
+        next[bucket] = { ...entry, items: entry.items.map(mutateRow) };
+      }
+      return next;
+    });
 
     // PATCH Supabase. Fetch existing metadata first to merge cleanly.
     try {
@@ -2222,9 +2235,16 @@ function App() {
       if (!r.ok) throw new Error(`Supabase PATCH ${r.status}`);
       setTimeout(() => { try { corpusRefreshRef.current?.(); } catch {} }, 1500);
     } catch (e) {
-      // Roll back
-      setDetections(prev => prev.map(d => d.id === id
-        ? { ...d, metadata: prevMeta } : d));
+      const restoreRow = (d) => (d.id === id ? { ...d, metadata: prevMeta } : d);
+      setDetections(prev => prev.map(restoreRow));
+      setHistoryBuckets(prev => {
+        const next = {};
+        for (const [bucket, entry] of Object.entries(prev)) {
+          if (!entry || !entry.items) { next[bucket] = entry; continue; }
+          next[bucket] = { ...entry, items: entry.items.map(restoreRow) };
+        }
+        return next;
+      });
       setError("Couldn't discard clip");
       setTimeout(() => setError(null), 3000);
       return;
