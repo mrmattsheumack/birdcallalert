@@ -252,6 +252,7 @@ const LS = {
   conf:            "bca_conf",
   lastNotif:       "bca_last_notif_id",
   historyStatusFilter: "bca_history_status_filter",  // v5.4: persisted history status pick
+  historySpeciesFilter: "bca_history_species_filter",  // v5.7: persisted history species pick
 };
 
 // ─── Classification helpers (abstraction layer) ─────────────────────
@@ -1671,6 +1672,16 @@ function App() {
     lsSet(LS.historyStatusFilter, historyStatusFilter);
   }, [historyStatusFilter]);
 
+  // v5.7: History species filter. Single-select: "all" or a specific
+  // species_guess value. Source list is derived from currently-loaded
+  // history items, so the dropdown only ever offers species you can
+  // actually filter to. Persisted in localStorage.
+  const [historySpeciesFilter, setHistorySpeciesFilter] = useState(() =>
+    lsGet(LS.historySpeciesFilter, "all"));
+  useEffect(() => {
+    lsSet(LS.historySpeciesFilter, historySpeciesFilter);
+  }, [historySpeciesFilter]);
+
   // Refs for callbacks that should not re-create the polling interval
   const classificationsRef = useRef(classifications);
   useEffect(() => { classificationsRef.current = classifications; }, [classifications]);
@@ -1821,12 +1832,36 @@ function App() {
     return items;
   }, [detections, viewFilter, confThreshold, classifications]);
 
+  // v5.7: derive sorted unique species_guess values from currently-loaded
+  // history items. Used to populate the species filter dropdown. We pull
+  // from todayItems (always loaded) AND from any expanded history bucket
+  // the user has fetched. Sorted alphabetically for predictable order.
+  const historyAvailableSpecies = useMemo(() => {
+    const seen = new Set();
+    // Today bucket (derived from detections in live window)
+    for (const d of detections) {
+      if (d.dismissed && d.species_guess) seen.add(d.species_guess);
+    }
+    // Any other loaded bucket
+    for (const bucket of Object.values(historyBuckets)) {
+      if (!bucket || !bucket.items) continue;
+      for (const d of bucket.items) {
+        if (d.species_guess) seen.add(d.species_guess);
+      }
+    }
+    return [...seen].sort((a, b) => a.localeCompare(b));
+  }, [detections, historyBuckets]);
+
   // Helper: shared filter applied to history items.
   // - Muted species are always excluded from history
   // - The historyClsFilter chips decide which of priority/suspect/normal show
   // - v5.4: historyStatusFilter narrows to a single badge state
   const filterHistoryItems = useCallback((items) => {
     return items.filter(d => {
+      // v5.7: species filter takes precedence - if "all" passes through.
+      if (historySpeciesFilter !== "all") {
+        if ((d.species_guess || "") !== historySpeciesFilter) return false;
+      }
       const label = birdLabel(d);
       const cls = getClassification(label, classifications);
       if (cls === "muted") return false;
@@ -1849,7 +1884,7 @@ function App() {
       }
       return true;
     });
-  }, [classifications, historyClsFilter, historyStatusFilter]);
+  }, [classifications, historyClsFilter, historyStatusFilter, historySpeciesFilter]);
 
   // History "Today" bucket: items dismissed today.
   // Derived from the live window (already in memory) so dismissing a card
@@ -2577,6 +2612,39 @@ function App() {
                   </button>
                 );
               })}
+            </div>
+
+            {/* v5.7: Species filter dropdown. Source: currently-loaded
+                history items. "All species" returns to showing everything. */}
+            <div style={{
+              display: "flex", gap: 6, marginTop: 0, marginBottom: 8,
+              alignItems: "center",
+            }}>
+              <span style={{
+                fontSize: 11, color: "var(--text-3)",
+                fontWeight: 600, letterSpacing: 0.5, textTransform: "uppercase",
+                marginRight: 4,
+              }}>Species</span>
+              <select
+                value={historySpeciesFilter}
+                onChange={e => setHistorySpeciesFilter(e.target.value)}
+                style={{
+                  flex: 1, padding: "5px 10px",
+                  borderRadius: 999,
+                  background: historySpeciesFilter !== "all" ? "var(--primary)" : "var(--surface)",
+                  color: historySpeciesFilter !== "all" ? "#fff" : "var(--text-2)",
+                  border: "1px solid " + (historySpeciesFilter !== "all" ? "var(--primary)" : "var(--border)"),
+                  fontSize: 12, fontWeight: 600, cursor: "pointer",
+                  fontFamily: "inherit",
+                  appearance: "none",
+                  WebkitAppearance: "none",
+                }}
+              >
+                <option value="all">All species</option>
+                {historyAvailableSpecies.map(s => (
+                  <option key={s} value={s}>{s}</option>
+                ))}
+              </select>
             </div>
 
             {/* Bucket sections. Each renders as a collapsible header
