@@ -1024,6 +1024,36 @@ function DetectionCard({ d, expanded, onToggle, onDismiss, onRestore, mode,
         opacity: mode === "history" ? 0.85 : 1,
       }}>
 
+      {/* v5.7: discard button - history mode only. Renders independently
+          of the action-buttons cluster so it appears on actioned cards
+          (confirmed/corrected/reviewed) too - those are exactly the
+          cards in training-corpus that we might want to remove. Positioned
+          left of the badge area so it doesn't overlap. */}
+      {mode === "history" && onDiscard && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            if (window.confirm("Discard this clip? It'll be removed from training.")) {
+              onDiscard(d.id);
+            }
+          }}
+          aria-label="Discard from training corpus"
+          title="Discard: remove this clip from training"
+          style={{
+            position: "absolute", top: 8, right: 38,
+            width: 22, height: 22, borderRadius: "50%",
+            background: "#b91c1c",
+            color: "#fff",
+            border: "none",
+            cursor: "pointer",
+            fontSize: 11, lineHeight: 1,
+            display: "flex", alignItems: "center", justifyContent: "center",
+            boxShadow: "0 1px 3px rgba(185, 28, 28, 0.4)",
+            zIndex: 3,
+          }}
+        >🗑</button>
+      )}
+
       {/* v5/v5.2/v5.4: top-right corner content. Mutually exclusive:
           - Corrected (green ✓ badge) takes priority over confirmed
           - Confirmed (blue ✓ badge) takes priority over reviewed
@@ -1143,33 +1173,6 @@ function DetectionCard({ d, expanded, onToggle, onDismiss, onRestore, mode,
               boxShadow: "0 2px 6px rgba(0, 0, 0, 0.12)",
             }}
           >×</button>
-          {/* v5.7: discard button - history mode only.
-              Sets metadata.discarded=true via Supabase PATCH, which the
-              Pi's discard-poll picks up within 2 min and moves the WAV
-              from training-corpus to _quarantine. Wrapped in
-              window.confirm because this is a destructive-feeling action
-              even though it's reversible. */}
-          {mode === "history" && onDiscard && (
-            <button
-              onClick={(e) => handleAction(e, () => {
-                if (window.confirm("Discard this clip? It'll be removed from training.")) {
-                  onDiscard(d.id);
-                }
-              })}
-              aria-label="Discard from training corpus"
-              title="Discard: remove this clip from training"
-              style={{
-                width: 32, height: 32, borderRadius: "50%",
-                background: "#b91c1c",
-                color: "#fff",
-                border: "2px solid #fff",
-                cursor: "pointer",
-                fontSize: 14, fontWeight: 700, lineHeight: 1,
-                display: "flex", alignItems: "center", justifyContent: "center",
-                boxShadow: "0 2px 6px rgba(185, 28, 28, 0.45)",
-              }}
-            >🗑</button>
-          )}
         </div>
       )}
 
