@@ -176,17 +176,37 @@ const NOTIF_MODES = {
 };
 
 // ─── Training corpus tier thresholds ────────────────────────────────
-// v5.2: surface the per-species corpus count on each card and in
-// settings so the user can tell when a species is well-covered vs.
-// still under-collected. Tiers are intentionally simple:
-//   < 15  → no dot, "need more"
-//   15-29 → yellow dot, "getting there"
-//   ≥ 30  → green dot, "enough to start training"
-// Source-of-truth count comes from Supabase: it's the number of rows
-// with either a manual_label OR confirmed=true for a given normalised
-// species label.
-const CORPUS_TIER_READY = 30;
+// v5.7.5: 5-tier collection-progress system. The dot next to a species
+// indicates how close that species is to having enough training data.
+//   0-14   → no dot         "starting" - urgent, keep collecting
+//   15-49  → orange ◐       "building" - keep collecting
+//   50-79  → lime ◐         "sufficient" - keep but lower priority
+//   80-99  → green ●        "ready" - target hit, can mute if you want
+//   100+   → gray ●         "saturated" - stop, you have plenty
+// Source-of-truth count comes from Supabase: rows with either a
+// manual_label OR confirmed=true for a given normalised species label.
 const CORPUS_TIER_BUILDING = 15;
+const CORPUS_TIER_SUFFICIENT = 50;
+const CORPUS_TIER_READY = 80;
+const CORPUS_TIER_SATURATED = 100;
+
+// Helper: map a count to {tier, dot, color}. Single source of truth
+// used by both the per-card display and the settings list.
+function corpusTier(count) {
+  if (count >= CORPUS_TIER_SATURATED) {
+    return { tier: "saturated", dot: "●", dotColor: "#94a3b8" };
+  }
+  if (count >= CORPUS_TIER_READY) {
+    return { tier: "ready", dot: "●", dotColor: "var(--success)" };
+  }
+  if (count >= CORPUS_TIER_SUFFICIENT) {
+    return { tier: "sufficient", dot: "◐", dotColor: "#84cc16" };
+  }
+  if (count >= CORPUS_TIER_BUILDING) {
+    return { tier: "building", dot: "◐", dotColor: "#ca8a04" };
+  }
+  return { tier: "starting", dot: "", dotColor: "transparent" };
+}
 
 // ─── v5.5: BirdNET post-processor remapping ──────────────────────────
 // Empirical remapping table derived from user correction history.
@@ -838,19 +858,8 @@ function SettingsSheet({ open, onClose, viewFilter, setViewFilter, notifMode, se
                     display: "flex", flexDirection: "column", gap: 4,
                   }}>
                     {corpusStats.entries.map(e => {
-                      const tier = e.count >= CORPUS_TIER_READY
-                        ? "ready"
-                        : e.count >= CORPUS_TIER_BUILDING
-                          ? "building"
-                          : "low";
-                      const dot = tier === "ready" ? "●"
-                                : tier === "building" ? "◐"
-                                : "";
-                      const dotColor = tier === "ready"
-                        ? "var(--success)"
-                        : tier === "building"
-                          ? "#ca8a04"
-                          : "transparent";
+                      // v5.7.5: 5-tier system via corpusTier helper
+                      const { dot, dotColor } = corpusTier(e.count);
                       return (
                         <div key={e.label} style={{
                           display: "flex", alignItems: "baseline",
@@ -1299,17 +1308,8 @@ function DetectionCard({ d, expanded, onToggle, onDismiss, onRestore, mode,
               Tier dot signals when a species is well-collected (green ●),
               building (yellow ◐), or still under-collected (no dot). */}
           {typeof corpusCount === "number" && (() => {
-            const tier = corpusCount >= CORPUS_TIER_READY
-              ? "ready"
-              : corpusCount >= CORPUS_TIER_BUILDING
-                ? "building"
-                : "low";
-            const dot = tier === "ready" ? "●"
-                      : tier === "building" ? "◐"
-                      : "";
-            const dotColor = tier === "ready" ? "var(--success)"
-                          : tier === "building" ? "#ca8a04"
-                          : "transparent";
+            // v5.7.5: 5-tier system via corpusTier helper
+            const { dot, dotColor } = corpusTier(corpusCount);
             return (
               <div style={{
                 fontSize: 11, color: "var(--text-3)",
