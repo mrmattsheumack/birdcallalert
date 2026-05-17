@@ -1983,43 +1983,40 @@ function App() {
     // returning just enough columns to bucket them. We paginate via the
     // count header in case the result is large.
     try {
-      const url = `${SUPA_URL}/rest/v1/candidate_sightings`
-        + `?source=eq.bird_detection`
-        + `&or=(metadata->>manual_label.neq.,metadata->>confirmed.eq.true)`
-        + `&select=species_guess,metadata`
-        + `&limit=5000`;
+      // v5.7.7: read truth-from-disk via pi_config.corpus_counts.
+      // The Pi publishes its actual training-corpus folder file counts
+      // every ~120s. We just slugify any incoming species name to look
+      // up its count here, instead of trying to count Supabase rows
+      // (which drift from Pi disk due to historical artefacts, manual
+      // corrections, discards, etc).
+      const url = `${SUPA_URL}/rest/v1/pi_config`
+        + `?key=eq.corpus_counts`
+        + `&select=value`;
       const r = await fetch(url, { headers: SUPA_HEADERS });
       if (!r.ok) {
-        // Quietly fail. The panel just shows "loading…" - not worth a
-        // toast error for a background-refresh feature.
+        // Quietly fail. Settings panel just keeps "loading…".
         return;
       }
       const rows = await r.json();
-      const counts = new Map();      // pretty label → count
-      const norm = new Map();        // normalised label → count
-      for (const row of (rows || [])) {
-        const meta = row.metadata || {};
-        let pretty;
-        if (meta.manual_label && String(meta.manual_label).trim()) {
-          pretty = String(meta.manual_label).trim();
-        } else if (meta.confirmed === true && row.species_guess) {
-          pretty = String(row.species_guess).trim();
-        } else {
-          continue;  // shouldn't happen given the query, but safe
-        }
-        // v5.7.6: apply Pi-side consolidation remap BEFORE normalising.
-        // This collapses Little Wattlebird/Red Wattlebird both into a
-        // single "Wattlebird" entry that matches the Pi corpus folder.
-        pretty = consolidateLabel(pretty);
-        // Use normalised key for grouping, but display the most-common
-        // pretty form. For now we just use the first-seen pretty form
-        // for each normalised key - simple and good enough.
-        const normKey = normaliseCorpusLabel(pretty);
-        if (!counts.has(normKey)) {
-          counts.set(normKey, { label: pretty, count: 0 });
-        }
-        counts.get(normKey).count += 1;
-        norm.set(normKey, (norm.get(normKey) || 0) + 1);
+      if (!rows || !rows.length || !rows[0].value) {
+        // Pi hasn't published yet. Show nothing rather than stale data.
+        setCorpusStats({ total: 0, entries: [], byNormalisedLabel: new Map() });
+        return;
+      }
+      // value is {slug: count, ...}. Slug is the Pi's folder name and is
+      // already in our normalised form (lowercase + dashes). Build pretty
+      // label by capitalising each dash-segment.
+      const piCounts = rows[0].value;
+      const counts = new Map();         // pretty label → {label, count}
+      const norm = new Map();           // normalised slug → count
+      for (const slug of Object.keys(piCounts)) {
+        const count = piCounts[slug];
+        if (typeof count !== "number" || count <= 0) continue;
+        const pretty = slug.split("-").map(w =>
+          w ? w[0].toUpperCase() + w.slice(1) : w
+        ).join(" ");
+        counts.set(slug, { label: pretty, count });
+        norm.set(slug, count);
       }
       const entries = [...counts.values()].sort((a, b) => b.count - a.count);
       const total = entries.reduce((s, e) => s + e.count, 0);
