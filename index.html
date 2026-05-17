@@ -400,6 +400,31 @@ function normaliseCorpusLabel(s) {
   return String(s).trim().toLowerCase().replace(/\s+/g, "-");
 }
 
+// ─── v5.7.6: Label consolidation remap ──────────────────────────────
+// Mirrors the Pi-side _V4_LABEL_REMAPS exactly. The Pi consolidates
+// similar species into single training-corpus folders (e.g. Little
+// Wattlebird + Red Wattlebird both → wattlebird/). For the app's
+// count display to match what the Pi actually has in training-corpus,
+// we apply the same consolidation here when counting. Without this,
+// the app would show "Little Wattlebird: 62" + "Red Wattlebird: 24"
+// as separate entries while the Pi has a single "wattlebird: 98"
+// folder, and counts would never match.
+const LABEL_CONSOLIDATION_REMAP = {
+  "little wattlebird": "Wattlebird",
+  "red wattlebird":    "Wattlebird",
+  "australian raven":  "Raven",
+  "forest raven":      "Raven",
+  "little raven":      "Raven",
+};
+
+// Apply consolidation: returns the consolidated pretty form for known
+// species, or the original label unchanged. Case-insensitive matching.
+function consolidateLabel(label) {
+  if (!label) return label;
+  const key = String(label).trim().toLowerCase();
+  return LABEL_CONSOLIDATION_REMAP[key] || label;
+}
+
 // Date-bucket label for the History page grouping.
 // Boundaries are based on local-time calendar dates (not strict 24h windows)
 // so "Today" means today's date, "Yesterday" means yesterday's date, etc.
@@ -843,8 +868,9 @@ function SettingsSheet({ open, onClose, viewFilter, setViewFilter, notifMode, se
                   fontSize: 12, color: "var(--text-3)",
                   margin: "10px 0 12px", lineHeight: 1.5,
                 }}>
-                  Clips you've confirmed or corrected. ● 30+ ready,
-                  ◐ 15-29 building, no dot below 15.
+                  Clips you've confirmed or corrected.
+                  ● 100+ saturated, ● 80-99 ready, ◐ 50-79 sufficient,
+                  ◐ 15-49 building, no dot below 15.
                 </p>
                 {(!corpusStats || corpusStats.entries.length === 0) ? (
                   <div style={{
@@ -1981,6 +2007,10 @@ function App() {
         } else {
           continue;  // shouldn't happen given the query, but safe
         }
+        // v5.7.6: apply Pi-side consolidation remap BEFORE normalising.
+        // This collapses Little Wattlebird/Red Wattlebird both into a
+        // single "Wattlebird" entry that matches the Pi corpus folder.
+        pretty = consolidateLabel(pretty);
         // Use normalised key for grouping, but display the most-common
         // pretty form. For now we just use the first-seen pretty form
         // for each normalised key - simple and good enough.
@@ -2016,10 +2046,12 @@ function App() {
     // Match priority: user's manual_label (most specific), then
     // species_guess (BirdNET's guess - what we'd promote to on Confirm).
     const meta = d.metadata || {};
+    // v5.7.6: consolidate species name (so Little Wattlebird lookups
+    // resolve to the consolidated "wattlebird" entry) THEN normalise.
     const candidates = [
       meta.manual_label,
       d.species_guess,
-    ].filter(Boolean).map(normaliseCorpusLabel);
+    ].filter(Boolean).map(s => normaliseCorpusLabel(consolidateLabel(s)));
     for (const k of candidates) {
       if (corpusStats.byNormalisedLabel.has(k)) {
         return corpusStats.byNormalisedLabel.get(k);
