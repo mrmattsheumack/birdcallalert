@@ -113,7 +113,7 @@ const PI_AUDIO_BASE = "https://eaglecam.taile03fa1.ts.net:8443";
 // ─── App version ────────────────────────────────────────────────────
 // Bump on every deploy. Visible in the footer so we know which build is
 // running when investigating bug reports or screenshots.
-const APP_VERSION = "v5.8.0";
+const APP_VERSION = "v5.8.1";
 const APP_VERSION_DATE = "2026-05-18";
 
 // ─── v5.8.0: Service Worker registration ──────────────────────────────
@@ -1729,12 +1729,13 @@ function App() {
   }));
 
   // History classification filter: which classifications to show.
-  // Defaults to all three visible classifications. Muted is excluded
-  // entirely from history (it's noise).
+  // v5.8.1: muted is now included as a chip (default OFF) so user can
+  // opt-in to viewing muted clips for audit/quality-review purposes.
   const [historyClsFilter, setHistoryClsFilter] = useState({
     priority: true,
     suspect: true,
     normal: true,
+    muted: false,
   });
 
   // v5.4: History status filter. One-of-four pick (single select):
@@ -1878,13 +1879,38 @@ function App() {
 
   // Auto-fetch buckets as the user expands them. Today doesn't need
   // its own fetch — it's derived from the live window.
+  //
+  // v5.8.1: when user picks a specific species in the filter, auto-expand
+  // AND auto-fetch all buckets so they immediately see all data for that
+  // species. Without this, the user only sees rows from buckets they had
+  // manually expanded, which can hide most of the data.
   useEffect(() => {
+    const speciesFilterActive = historySpeciesFilter !== "all";
+    if (speciesFilterActive) {
+      // Auto-expand all buckets when filtering by species.
+      // Guard: only update state if any bucket is currently collapsed,
+      // otherwise we'd create a new object every render -> infinite loop.
+      const needsExpansion = !expandedBuckets["Yesterday"] ||
+                              !expandedBuckets["This week"] ||
+                              !expandedBuckets["This month"] ||
+                              !expandedBuckets["Older"];
+      if (needsExpansion) {
+        setExpandedBuckets(prev => ({
+          ...prev,
+          "Yesterday": true,
+          "This week": true,
+          "This month": true,
+          "Older": true,
+        }));
+      }
+    }
     for (const bucket of ["Yesterday", "This week", "This month", "Older"]) {
-      if (expandedBuckets[bucket] && !historyBuckets[bucket]?.loaded && !historyBuckets[bucket]?.loading) {
+      const shouldFetch = speciesFilterActive || expandedBuckets[bucket];
+      if (shouldFetch && !historyBuckets[bucket]?.loaded && !historyBuckets[bucket]?.loading) {
         fetchHistoryBucket(bucket);
       }
     }
-  }, [expandedBuckets, historyBuckets, fetchHistoryBucket]);
+  }, [expandedBuckets, historyBuckets, fetchHistoryBucket, historySpeciesFilter]);
 
   // Live-view list: from the 24h window, non-dismissed, passes confidence
   // + classification, passes filter.
@@ -1948,7 +1974,9 @@ function App() {
       }
       const label = birdLabel(d);
       const cls = getClassification(label, classifications);
-      if (cls === "muted") return false;
+      // v5.8.1: muted now respects the chip toggle (default OFF) so user
+      // can opt into seeing muted clips for audit/quality-review.
+      if (cls === "muted"    && !historyClsFilter.muted)    return false;
       if (cls === "priority" && !historyClsFilter.priority) return false;
       if (cls === "suspect"  && !historyClsFilter.suspect)  return false;
       if (cls === "normal"   && !historyClsFilter.normal)   return false;
@@ -2657,6 +2685,7 @@ function App() {
                 { key: "priority", icon: "⭐", label: "Priority", color: "var(--accent)" },
                 { key: "suspect",  icon: "⚠️", label: "Suspect",  color: "#ca8a04" },
                 { key: "normal",   icon: "○",  label: "Normal",   color: "var(--text-2)" },
+                { key: "muted",    icon: "🔇", label: "Muted",    color: "#6b7280" },
               ].map(c => {
                 const active = historyClsFilter[c.key];
                 return (
