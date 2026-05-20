@@ -113,7 +113,7 @@ const PI_AUDIO_BASE = "https://eaglecam.taile03fa1.ts.net:8443";
 // ─── App version ────────────────────────────────────────────────────
 // Bump on every deploy. Visible in the footer so we know which build is
 // running when investigating bug reports or screenshots.
-const APP_VERSION = "v5.8.2";
+const APP_VERSION = "v5.8.3";
 const APP_VERSION_DATE = "2026-05-18";
 
 // ─── v5.8.0: Service Worker registration ──────────────────────────────
@@ -1855,24 +1855,45 @@ function App() {
       let q = `${SUPA_URL}/rest/v1/candidate_sightings?source=eq.bird_detection`;
       if (gte) q += `&created_at=gte.${encodeURIComponent(gte)}`;
       if (lt)  q += `&created_at=lt.${encodeURIComponent(lt)}`;
-      // v5.8.2: bump limit from 1000 to 10000 to handle high-volume buckets.
-      // Some buckets (e.g. "This week") can have 3000+ rows. Without this,
-      // older rows in the bucket range never load and the species filter
-      // appears to be missing data.
-      q += `&order=created_at.desc&limit=10000`;
-      const bucketHeaders = { ...SUPA_HEADERS, Range: "0-9999" };
-      const r = await fetch(q, { headers: bucketHeaders });
-      if (!r.ok) {
+      // v5.8.3: paginated fetch. Supabase caps each request at 1000 rows
+      // server-side regardless of client `limit` or `Range` header, so for
+      // high-volume buckets (e.g. "This week" with 3000+ rows) a single
+      // request misses older rows in the range, hiding most of the data.
+      // Loop fetches up to 10 pages (10000 rows max per bucket).
+      q += `&order=created_at.desc`;
+      const PAGE_SIZE = 1000;
+      const MAX_PAGES = 10;
+      const allRows = [];
+      let pageError = null;
+      for (let page = 0; page < MAX_PAGES; page++) {
+        const from = page * PAGE_SIZE;
+        const to = from + PAGE_SIZE - 1;
+        const pageHeaders = { ...SUPA_HEADERS, Range: `${from}-${to}` };
+        const r = await fetch(q, { headers: pageHeaders });
+        if (!r.ok) {
+          pageError = `HTTP ${r.status} on page ${page + 1}`;
+          break;
+        }
+        const pageData = await r.json();
+        if (!Array.isArray(pageData) || pageData.length === 0) {
+          break;
+        }
+        allRows.push(...pageData);
+        if (pageData.length < PAGE_SIZE) {
+          // Last page - we got fewer rows than requested, no more data.
+          break;
+        }
+      }
+      if (pageError) {
         setHistoryBuckets(prev => ({
           ...prev,
-          [bucket]: { items: [], loading: false, loaded: false, error: `HTTP ${r.status}` },
+          [bucket]: { items: [], loading: false, loaded: false, error: pageError },
         }));
         return;
       }
-      const data = await r.json();
       setHistoryBuckets(prev => ({
         ...prev,
-        [bucket]: { items: data || [], loading: false, loaded: true, error: null },
+        [bucket]: { items: allRows, loading: false, loaded: true, error: null },
       }));
     } catch (e) {
       setHistoryBuckets(prev => ({
