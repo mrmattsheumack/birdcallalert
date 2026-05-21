@@ -1964,21 +1964,36 @@ function App() {
     return items;
   }, [detections, viewFilter, confThreshold, classifications]);
 
+  // v5.9: compute "effective species" for a detection — user's correction
+  // (manual_label) wins over BirdNET's guess (species_guess). Returns
+  // empty string if neither is set. Used by species filter, dropdown
+  // population, and total clip count display.
+  const effectiveSpecies = (d) => {
+    const meta = (d && d.metadata) || {};
+    return ((meta.manual_label || "").trim() || ((d && d.species_guess) || "").trim());
+  };
+
   // v5.7: derive sorted unique species_guess values from currently-loaded
   // history items. Used to populate the species filter dropdown. We pull
   // from todayItems (always loaded) AND from any expanded history bucket
   // the user has fetched. Sorted alphabetically for predictable order.
   const historyAvailableSpecies = useMemo(() => {
     const seen = new Set();
+    // v5.9: collect effective species (manual_label OR species_guess)
+    // so corrected-into species appear in the filter dropdown even when
+    // BirdNET never originally tagged anything with that label.
     // Today bucket (derived from detections in live window)
     for (const d of detections) {
-      if (d.dismissed && d.species_guess) seen.add(d.species_guess);
+      if (!d.dismissed) continue;
+      const es = effectiveSpecies(d);
+      if (es) seen.add(es);
     }
     // Any other loaded bucket
     for (const bucket of Object.values(historyBuckets)) {
       if (!bucket || !bucket.items) continue;
       for (const d of bucket.items) {
-        if (d.species_guess) seen.add(d.species_guess);
+        const es = effectiveSpecies(d);
+        if (es) seen.add(es);
       }
     }
     return [...seen].sort((a, b) => a.localeCompare(b));
@@ -1994,9 +2009,11 @@ function App() {
       // yet - discarded clips should disappear from History so the user
       // can see clear progress through the corpus cleanup task.
       if (d.metadata && d.metadata.discarded === true) return false;
-      // v5.7: species filter takes precedence - if "all" passes through.
+      // v5.9: species filter uses effective species (manual_label OR
+      // species_guess) so corrected-into clips show up under their
+      // corrected species, not BirdNET's original guess.
       if (historySpeciesFilter !== "all") {
-        if ((d.species_guess || "") !== historySpeciesFilter) return false;
+        if (effectiveSpecies(d) !== historySpeciesFilter) return false;
       }
       const label = birdLabel(d);
       const cls = getClassification(label, classifications);
@@ -2804,6 +2821,43 @@ function App() {
                 ))}
               </select>
             </div>
+
+            {/* v5.9: total clip count for the active species filter.
+                Counts effective-species matches across all loaded
+                buckets (today + any expanded older buckets). Shows
+                under the dropdown so user knows at a glance how many
+                clips exist for the current filter. */}
+            {historySpeciesFilter !== "all" && (() => {
+              let n = 0;
+              const matches = (d) => {
+                if (d.metadata && d.metadata.discarded === true) return false;
+                return effectiveSpecies(d) === historySpeciesFilter;
+              };
+              for (const d of detections) if (matches(d)) n++;
+              for (const b of Object.values(historyBuckets)) {
+                if (!b || !b.items) continue;
+                for (const d of b.items) if (matches(d)) n++;
+              }
+              return (
+                <div style={{
+                  margin: "4px 0 0 0",
+                  padding: "10px 14px",
+                  background: "var(--surface)",
+                  border: "1px solid var(--border)",
+                  borderRadius: "var(--r-md)",
+                  fontSize: 13,
+                  color: "var(--text-1)",
+                  display: "flex",
+                  alignItems: "baseline",
+                  gap: 8,
+                }}>
+                  <strong style={{ fontSize: 14 }}>{historySpeciesFilter}</strong>
+                  <span style={{ color: "var(--text-2)", fontSize: 12 }}>
+                    {n} clip{n === 1 ? "" : "s"} loaded
+                  </span>
+                </div>
+              );
+            })()}
 
             {/* Bucket sections. Each renders as a collapsible header
                 showing the count, then (when expanded) the cards. */}
