@@ -113,7 +113,7 @@ const PI_AUDIO_BASE = "https://eaglecam.taile03fa1.ts.net:8443";
 // ─── App version ────────────────────────────────────────────────────
 // Bump on every deploy. Visible in the footer so we know which build is
 // running when investigating bug reports or screenshots.
-const APP_VERSION = "v5.9";
+const APP_VERSION = "v5.10";
 const APP_VERSION_DATE = "2026-05-21";
 
 // ─── v5.8.0: Service Worker registration ──────────────────────────────
@@ -1367,6 +1367,56 @@ function DetectionCard({ d, expanded, onToggle, onDismiss, onRestore, mode,
               You: <strong>{meta.manual_label}</strong>
             </div>
           )}
+          {/* v6: BoundaryBirds 2nd-opinion chip. Only renders when bb_species
+              is set. Color indicates whether BB agrees with the effective
+              species (user correction wins over BirdNET guess). */}
+          {d.bb_species && (() => {
+            const _bbNorm = (s) => {
+              if (!s) return "";
+              const k = String(s).trim().toLowerCase();
+              const remaps = {
+                "little wattlebird": "wattlebird",
+                "red wattlebird": "wattlebird",
+                "australian raven": "raven",
+                "forest raven": "raven",
+                "little raven": "raven",
+              };
+              if (remaps[k]) return remaps[k];
+              return k.split(/\s+/).join("-");
+            };
+            const effectiveTitle = (meta.manual_label || d.species_guess || "").trim();
+            const agrees = _bbNorm(effectiveTitle) === _bbNorm(d.bb_species);
+            const bbConfPct = Math.round((d.bb_confidence || 0) * 100);
+            const bg = agrees
+              ? "rgba(31, 107, 58, 0.08)"
+              : "rgba(202, 138, 4, 0.10)";
+            const border = agrees
+              ? "rgba(31, 107, 58, 0.25)"
+              : "rgba(202, 138, 4, 0.30)";
+            const labelColor = agrees ? "var(--text-2)" : "#ca8a04";
+            return (
+              <div style={{ fontSize: 12, color: "var(--text)",
+                  marginTop: 6, padding: "3px 8px",
+                  background: bg,
+                  border: "1px solid " + border,
+                  borderRadius: 999, display: "inline-flex",
+                  alignItems: "center", gap: 6,
+                  maxWidth: "100%" }}
+                title={agrees
+                  ? "BoundaryBirds agrees with current label"
+                  : "BoundaryBirds disagrees - listen to verify"}>
+                <span style={{ fontSize: 10, fontWeight: 700,
+                    color: labelColor, letterSpacing: 0.5 }}>BB</span>
+                <strong style={{ fontWeight: 600 }}>{d.bb_species}</strong>
+                <span style={{ color: "var(--text-3)" }}>.</span>
+                <span>{bbConfPct}%</span>
+                {!agrees && (
+                  <span style={{ color: "#ca8a04", marginLeft: 2 }}
+                    aria-label="disagreement">!</span>
+                )}
+              </div>
+            );
+          })()}
           <div style={{ fontSize: 13, color: "var(--text-2)", marginTop: 6 }}>
             {fmtAge(d.created_at)}
           </div>
@@ -1910,25 +1960,27 @@ function App() {
   // AND auto-fetch all buckets so they immediately see all data for that
   // species. Without this, the user only sees rows from buckets they had
   // manually expanded, which can hide most of the data.
+  // v5.9.1: track last seen species filter so we only auto-expand
+  // buckets when the filter VALUE changes, not on every state update.
+  // Previous code re-expanded on every render while a filter was active,
+  // which made it impossible for the user to collapse buckets.
+  const lastSpeciesFilterRef = useRef(historySpeciesFilter);
+
   useEffect(() => {
     const speciesFilterActive = historySpeciesFilter !== "all";
-    if (speciesFilterActive) {
-      // Auto-expand all buckets when filtering by species.
-      // Guard: only update state if any bucket is currently collapsed,
-      // otherwise we'd create a new object every render -> infinite loop.
-      const needsExpansion = !expandedBuckets["Yesterday"] ||
-                              !expandedBuckets["This week"] ||
-                              !expandedBuckets["This month"] ||
-                              !expandedBuckets["Older"];
-      if (needsExpansion) {
-        setExpandedBuckets(prev => ({
-          ...prev,
-          "Yesterday": true,
-          "This week": true,
-          "This month": true,
-          "Older": true,
-        }));
-      }
+    const filterChanged = historySpeciesFilter !== lastSpeciesFilterRef.current;
+    lastSpeciesFilterRef.current = historySpeciesFilter;
+
+    // Only force-expand buckets on the EDGE where the user just picked
+    // a new species. Once expanded, the user is free to collapse them.
+    if (speciesFilterActive && filterChanged) {
+      setExpandedBuckets(prev => ({
+        ...prev,
+        "Yesterday": true,
+        "This week": true,
+        "This month": true,
+        "Older": true,
+      }));
     }
     for (const bucket of ["Yesterday", "This week", "This month", "Older"]) {
       const shouldFetch = speciesFilterActive || expandedBuckets[bucket];
