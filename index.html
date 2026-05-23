@@ -113,7 +113,7 @@ const PI_AUDIO_BASE = "https://eaglecam.taile03fa1.ts.net:8443";
 // ─── App version ────────────────────────────────────────────────────
 // Bump on every deploy. Visible in the footer so we know which build is
 // running when investigating bug reports or screenshots.
-const APP_VERSION = "v5.10.1";
+const APP_VERSION = "v6.0";
 const APP_VERSION_DATE = "2026-05-22";
 
 // ─── v5.8.0: Service Worker registration ──────────────────────────────
@@ -996,7 +996,8 @@ function SettingsSheet({ open, onClose, viewFilter, setViewFilter, notifMode, se
 //             like "Common Myna" vs "Common Mynah".
 function DetectionCard({ d, expanded, onToggle, onDismiss, onRestore, mode,
                          classification, onSetClassification, onSetManualLabel,
-                         onConfirm, onReview, onDiscard, corpusCount, labelSuggestions }) {
+                         onConfirm, onReview, onDiscard, corpusCount, labelSuggestions,
+                         onSetSwapVerdict }) {
   const label = birdLabel(d);
   const meta = d.metadata || {};
   const conf = Math.round((d.confidence || 0) * 100);
@@ -1027,6 +1028,33 @@ function DetectionCard({ d, expanded, onToggle, onDismiss, onRestore, mode,
   // History: show only if not already actioned in any way (no badge of any colour).
   const actioned = corrected || confirmed || reviewed;
   const showActionButtons = mode === "live" || !actioned;
+
+  // v6: Swap UI - shown when this card qualifies (live + BB ran + not yet actioned).
+  // Two prediction "buttons" stacked: higher-confidence at top, lower at bottom.
+  // User can tap bottom to swap them. Top = "current selection" committed on tick.
+  const useSwapUI = mode === "live" && !!d.bb_species && !corrected && !confirmed && !reviewed;
+
+  // selectedSource tracks which prediction is "the top one" right now.
+  // Initial: whichever model has higher confidence.
+  const _bnConfRaw = d.confidence || 0;
+  const _bbConfRaw = d.bb_confidence || 0;
+  const [selectedSource, setSelectedSource] = useState(
+    _bnConfRaw >= _bbConfRaw ? "birdnet" : "boundarybirds"
+  );
+
+  // Helpers to get top and bottom prediction details based on selectedSource.
+  const getTopPrediction = () => {
+    if (selectedSource === "birdnet") {
+      return { species: d.species_guess, conf: _bnConfRaw, source: "birdnet" };
+    }
+    return { species: d.bb_species, conf: _bbConfRaw, source: "boundarybirds" };
+  };
+  const getBottomPrediction = () => {
+    if (selectedSource === "birdnet") {
+      return { species: d.bb_species, conf: _bbConfRaw, source: "boundarybirds" };
+    }
+    return { species: d.species_guess, conf: _bnConfRaw, source: "birdnet" };
+  };
 
   // v3: regional plausibility
   const regionFlagged = meta.region_match === false;
@@ -1209,6 +1237,18 @@ function DetectionCard({ d, expanded, onToggle, onDismiss, onRestore, mode,
           {onConfirm && (
             <button
               onClick={(e) => handleAction(e, () => {
+                // v6: Swap UI commit - tick saves the current top selection
+                // to corpus AND records the verdict in the new schema.
+                if (useSwapUI && onSetSwapVerdict) {
+                  const top = getTopPrediction();
+                  onSetSwapVerdict(d.id, {
+                    verdict: top.source,
+                    speciesTruth: top.species,
+                    addToCorpus: true,
+                    source: top.source,
+                  });
+                  return;
+                }
                 // v5.5: when post-processor has remapped, "confirm" means
                 // "confirm the REMAPPED species, not BirdNET's". Write as
                 // manual_label so the Pi promotes to the correct corpus folder.
@@ -1241,6 +1281,18 @@ function DetectionCard({ d, expanded, onToggle, onDismiss, onRestore, mode,
               onDismiss wasn't wired for history. */}
           <button
             onClick={(e) => handleAction(e, () => {
+              // v6: Swap UI commit - cross records the verdict in the new
+              // schema but does NOT save the clip to corpus.
+              if (useSwapUI && onSetSwapVerdict && mode === "live") {
+                const top = getTopPrediction();
+                onSetSwapVerdict(d.id, {
+                  verdict: top.source,
+                  speciesTruth: top.species,
+                  addToCorpus: false,
+                  source: top.source,
+                });
+                return;
+              }
               if (mode === "history" && onReview) {
                 onReview(d.id);
               } else if (onDismiss) {
@@ -1304,21 +1356,97 @@ function DetectionCard({ d, expanded, onToggle, onDismiss, onRestore, mode,
       <div style={{ display: "flex", alignItems: "flex-start",
           justifyContent: "space-between", gap: 12 }}>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 17, fontWeight: 600, color: "var(--text)",
-              lineHeight: 1.25 }}>
-            {isPriorityCls && mode === "live" && (
-              <span style={{ color: "var(--accent)", marginRight: 6 }}>★</span>
-            )}
-            {isSuspectCls && mode === "live" && !isPriorityCls && (
-              <span style={{ color: "#ca8a04", marginRight: 6 }}>⚠</span>
-            )}
-            {displaySpecies}
-          </div>
+          {useSwapUI ? (
+            (() => {
+              const top = getTopPrediction();
+              const bot = getBottomPrediction();
+              const topConfPct = Math.round((top.conf || 0) * 100);
+              const botConfPct = Math.round((bot.conf || 0) * 100);
+              const topLabel = top.source === "birdnet" ? "BirdNET" : "BoundaryBirds";
+              const botLabel = bot.source === "birdnet" ? "BirdNET" : "BoundaryBirds";
+              return (
+                <div>
+                  <div style={{
+                    padding: "10px 12px",
+                    background: "rgba(31, 107, 58, 0.10)",
+                    border: "2px solid var(--success)",
+                    borderRadius: "var(--r-sm)",
+                    marginBottom: 6,
+                  }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      {isPriorityCls && (
+                        <span style={{ color: "var(--accent)" }}>★</span>
+                      )}
+                      {isSuspectCls && !isPriorityCls && (
+                        <span style={{ color: "#ca8a04" }}>⚠</span>
+                      )}
+                      <span style={{ fontSize: 10, fontWeight: 700,
+                          color: "var(--success)", letterSpacing: 0.5 }}>
+                        {topLabel}
+                      </span>
+                      <span style={{ marginLeft: "auto", fontSize: 11,
+                          color: "var(--text-3)", fontWeight: 600 }}>
+                        {topConfPct}%
+                      </span>
+                    </div>
+                    <div style={{ fontSize: 17, fontWeight: 600,
+                        color: "var(--text)", lineHeight: 1.25, marginTop: 2 }}>
+                      {top.species}
+                    </div>
+                  </div>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setSelectedSource(bot.source);
+                    }}
+                    aria-label={"Switch selection to " + bot.species}
+                    title={"Tap to select " + botLabel + ": " + bot.species}
+                    style={{
+                      width: "100%",
+                      padding: "6px 10px",
+                      background: "var(--surface-2)",
+                      border: "1px solid var(--border)",
+                      borderRadius: "var(--r-sm)",
+                      cursor: "pointer",
+                      textAlign: "left",
+                      display: "flex", alignItems: "center", gap: 6,
+                      fontFamily: "inherit",
+                    }}
+                  >
+                    <span style={{ fontSize: 9, fontWeight: 700,
+                        color: "var(--text-3)", letterSpacing: 0.5 }}>
+                      {botLabel}
+                    </span>
+                    <span style={{ fontSize: 13, color: "var(--text-2)" }}>
+                      {bot.species}
+                    </span>
+                    <span style={{ marginLeft: "auto", fontSize: 11,
+                        color: "var(--text-3)" }}>
+                      {botConfPct}%
+                    </span>
+                    <span style={{ fontSize: 11, color: "var(--text-3)",
+                        marginLeft: 4 }} title="Tap to swap">⇅</span>
+                  </button>
+                </div>
+              );
+            })()
+          ) : (
+            <div style={{ fontSize: 17, fontWeight: 600, color: "var(--text)",
+                lineHeight: 1.25 }}>
+              {isPriorityCls && mode === "live" && (
+                <span style={{ color: "var(--accent)", marginRight: 6 }}>★</span>
+              )}
+              {isSuspectCls && mode === "live" && !isPriorityCls && (
+                <span style={{ color: "#ca8a04", marginRight: 6 }}>⚠</span>
+              )}
+              {displaySpecies}
+            </div>
+          )}
           {/* v5.5: when post-processor has remapped this prediction, surface
               BirdNET's original guess as small audit-trail text. Helps the
               user spot when the remap looks wrong, and preserves trust by
               not hiding the raw model output. */}
-          {remap && (
+          {remap && !useSwapUI && (
             <div style={{ fontSize: 11, color: "var(--text-3)",
                 marginTop: 3, fontStyle: "italic" }}>
               BirdNET said: {remap.original}
@@ -1327,7 +1455,7 @@ function DetectionCard({ d, expanded, onToggle, onDismiss, onRestore, mode,
               )}
             </div>
           )}
-          {meta.scientific_name && !remap && (
+          {meta.scientific_name && !remap && !useSwapUI && (
             <div style={{ fontSize: 13, color: "var(--text-2)",
                 fontStyle: "italic", marginTop: 3 }}>
               {meta.scientific_name}
@@ -1336,7 +1464,7 @@ function DetectionCard({ d, expanded, onToggle, onDismiss, onRestore, mode,
           {/* v5.5: quick-confirm chips for alternate likely species when
               the remap has more than one common correction target. Tap a
               chip to confirm THAT label instead of the primary. */}
-          {remap && remap.alternates.length > 0 && mode === "live" && (
+          {remap && remap.alternates.length > 0 && mode === "live" && !useSwapUI && (
             <div style={{ display: "flex", flexWrap: "wrap", gap: 4,
                 marginTop: 6 }}>
               <span style={{ fontSize: 11, color: "var(--text-3)",
@@ -1370,7 +1498,7 @@ function DetectionCard({ d, expanded, onToggle, onDismiss, onRestore, mode,
           {/* v6: BoundaryBirds 2nd-opinion chip. Only renders when bb_species
               is set. Color indicates whether BB agrees with the effective
               species (user correction wins over BirdNET guess). */}
-          {d.bb_species && (() => {
+          {d.bb_species && !useSwapUI && (() => {
             const _bbNorm = (s) => {
               if (!s) return "";
               const k = String(s).trim().toLowerCase();
@@ -2465,6 +2593,90 @@ function App() {
   // into training-corpus/<species_guess>/ (normalised). This builds the
   // "positive confirmations" half of the BoundaryBirds training data,
   // complementing the corrections half.
+  // v6: setSwapVerdict - the new commit handler used by the 2-prediction
+  // swap UI on Live cards. Writes the new schema columns (verdict,
+  // verdict_source, species_truth, add_to_corpus) AND mirrors the existing
+  // metadata writes so badges and Pi-side auto-relabel still work.
+  // args = { verdict, speciesTruth, addToCorpus, source }
+  //   verdict: "birdnet" | "boundarybirds" | "neither"
+  //   speciesTruth: the final species string (display form, e.g. "Common Myna")
+  //   addToCorpus: true (tick) or false (cross)
+  //   source: same as verdict, kept for clarity in call sites
+  const setSwapVerdict = useCallback(async (id, args) => {
+    const { verdict, speciesTruth, addToCorpus, source } = args;
+    let prevMeta = null;
+    let prevDismissed = null;
+    // Optimistic local update. For tick (addToCorpus=true):
+    //   - verdict='birdnet'      -> set metadata.confirmed=true (blue badge)
+    //   - verdict='boundarybirds' or 'neither' -> set metadata.manual_label
+    // For cross (addToCorpus=false): just dismiss, no badge.
+    setDetections(prev => prev.map(d => {
+      if (d.id !== id) return d;
+      prevMeta = d.metadata;
+      prevDismissed = d.dismissed;
+      const optMeta = { ...(d.metadata || {}) };
+      if (addToCorpus) {
+        if (verdict === "birdnet") {
+          optMeta.confirmed = true;
+          delete optMeta.manual_label;
+        } else {
+          optMeta.manual_label = speciesTruth;
+          delete optMeta.confirmed;
+        }
+      }
+      return { ...d, metadata: optMeta, dismissed: true };
+    }));
+
+    try {
+      // Fetch current metadata to merge without clobber
+      const current = await fetch(
+        `${SUPA_URL}/rest/v1/candidate_sightings?id=eq.${id}&select=metadata`,
+        { headers: SUPA_HEADERS }
+      );
+      const rows = await current.json();
+      const fullMeta = (rows && rows[0] && rows[0].metadata) || {};
+      const newMeta = { ...fullMeta };
+      if (addToCorpus) {
+        if (verdict === "birdnet") {
+          newMeta.confirmed = true;
+          delete newMeta.manual_label;
+          delete newMeta._v5_2_corpus_done;
+        } else {
+          newMeta.manual_label = speciesTruth;
+          delete newMeta.confirmed;
+          delete newMeta._v5_2_corpus_done;
+        }
+      }
+      // PATCH body: new top-level columns + merged metadata + dismissed
+      const body = {
+        verdict,
+        verdict_source: "user",
+        species_truth: speciesTruth,
+        add_to_corpus: addToCorpus,
+        metadata: newMeta,
+        dismissed: true,
+      };
+      const r = await fetch(
+        `${SUPA_URL}/rest/v1/candidate_sightings?id=eq.${id}`,
+        {
+          method: "PATCH",
+          headers: { ...SUPA_HEADERS, "Prefer": "return=minimal" },
+          body: JSON.stringify(body),
+        }
+      );
+      if (!r.ok) throw new Error(`Supabase PATCH ${r.status}`);
+      // Trigger corpus count refresh if a clip was added
+      if (addToCorpus) {
+        setTimeout(() => { try { corpusRefreshRef.current?.(); } catch {} }, 1500);
+      }
+    } catch (e) {
+      setDetections(prev => prev.map(d => d.id === id
+        ? { ...d, metadata: prevMeta, dismissed: prevDismissed } : d));
+      setError("Couldn't save verdict");
+      setTimeout(() => setError(null), 3000);
+    }
+  }, []);
+
   const setConfirmed = useCallback(async (id) => {
     let prevMeta = null;
     let prevDismissed = null;
@@ -2742,6 +2954,7 @@ function App() {
                     onToggle={() => setExpandedId(expandedId === d.id ? null : d.id)}
                     onDismiss={() => setDismissed(d.id, true)}
                     onConfirm={setConfirmed}
+                    onSetSwapVerdict={setSwapVerdict}
                     mode="live"
                     classification={getClassification(birdLabel(d), classifications)}
                     onSetClassification={(label, state) => {
