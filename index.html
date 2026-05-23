@@ -113,8 +113,8 @@ const PI_AUDIO_BASE = "https://eaglecam.taile03fa1.ts.net:8443";
 // ─── App version ────────────────────────────────────────────────────
 // Bump on every deploy. Visible in the footer so we know which build is
 // running when investigating bug reports or screenshots.
-const APP_VERSION = "v6.0";
-const APP_VERSION_DATE = "2026-05-22";
+const APP_VERSION = "v6.1";
+const APP_VERSION_DATE = "2026-05-23";
 
 // ─── v5.8.0: Service Worker registration ──────────────────────────────
 // Registers /sw.js so registration.showNotification() works on Chrome
@@ -326,6 +326,7 @@ const LS = {
   lastNotif:       "bca_last_notif_id",
   historyStatusFilter: "bca_history_status_filter",  // v5.4: persisted history status pick
   historySpeciesFilter: "bca_history_species_filter",  // v5.7: persisted history species pick
+  liveSort:        "bca_live_sort",   // v6.1: live feed sort direction "desc"|"asc"
 };
 
 // ─── Classification helpers (abstraction layer) ─────────────────────
@@ -1041,15 +1042,28 @@ function DetectionCard({ d, expanded, onToggle, onDismiss, onRestore, mode,
   const [selectedSource, setSelectedSource] = useState(
     _bnConfRaw >= _bbConfRaw ? "birdnet" : "boundarybirds"
   );
+  // v6.1: customLabel holds user-typed species when selectedSource === "custom".
+  // Save button promotes the typed value to top without writing to DB.
+  const [customLabel, setCustomLabel] = useState("");
 
   // Helpers to get top and bottom prediction details based on selectedSource.
+  // v6.1: "custom" source means user typed a different species via Save.
+  // verdict for "custom" maps to "neither" (top write target).
   const getTopPrediction = () => {
+    if (selectedSource === "custom") {
+      return { species: customLabel, conf: null, source: "neither" };
+    }
     if (selectedSource === "birdnet") {
       return { species: d.species_guess, conf: _bnConfRaw, source: "birdnet" };
     }
     return { species: d.bb_species, conf: _bbConfRaw, source: "boundarybirds" };
   };
   const getBottomPrediction = () => {
+    // When custom is on top, bottom shows BirdNET as the revert option.
+    // (User can tap to revert to BN. If they wanted BB, tap again to swap.)
+    if (selectedSource === "custom") {
+      return { species: d.species_guess, conf: _bnConfRaw, source: "birdnet" };
+    }
     if (selectedSource === "birdnet") {
       return { species: d.bb_species, conf: _bbConfRaw, source: "boundarybirds" };
     }
@@ -1111,9 +1125,20 @@ function DetectionCard({ d, expanded, onToggle, onDismiss, onRestore, mode,
   async function handleSaveManualLabel(e) {
     e.stopPropagation();
     if (manualSaving) return;
+    const trimmed = manualLabelDraft.trim();
+    if (!trimmed) return;
+    // v6.1: In swap mode, Save promotes the custom value to top WITHOUT
+    // writing to DB. User must then click tick/cross to commit (and choose
+    // whether to save the clip to corpus or just record the decision).
+    if (useSwapUI) {
+      setCustomLabel(trimmed);
+      setSelectedSource("custom");
+      return;
+    }
+    // Legacy flow: old cards without swap UI write directly + auto-dismiss.
     setManualSaving(true);
     try {
-      await onSetManualLabel?.(d.id, manualLabelDraft.trim(), clipFilename);
+      await onSetManualLabel?.(d.id, trimmed, clipFilename);
     } finally {
       setManualSaving(false);
     }
@@ -1821,6 +1846,9 @@ function App() {
   const [viewMode, setViewMode] = useState("live");
 
   const [viewFilter, setViewFilter] = useState(() => lsGet(LS.filter, "all"));
+  // v6.1: live feed sort direction. "desc" = newest first (default),
+  // "asc" = oldest first (helps grind through backlog chronologically).
+  const [liveSortDir, setLiveSortDir] = useState(() => lsGet(LS.liveSort, "desc"));
   const [notifMode, setNotifMode] = useState(() => lsGet(LS.notifMode, "priority"));
   const [confThreshold, setConfThreshold] = useState(() => parseFloat(lsGet(LS.conf, "0.40")));
 
@@ -1857,6 +1885,7 @@ function App() {
 
   // Persist settings
   useEffect(() => { lsSet(LS.filter, viewFilter); }, [viewFilter]);
+  useEffect(() => { lsSet(LS.liveSort, liveSortDir); }, [liveSortDir]);
   useEffect(() => { lsSet(LS.notifMode, notifMode); }, [notifMode]);
   useEffect(() => { lsSet(LS.conf, String(confThreshold)); }, [confThreshold]);
 
@@ -2132,18 +2161,24 @@ function App() {
       if (viewFilter === "priority" && cls !== "priority") return false;
       return true;
     });
-    // Stable sort: priority(0) → suspect(1) → normal(2), then by created_at desc
-    const order = { priority: 0, suspect: 1, normal: 2 };
-    items.sort((a, b) => {
-      const ca = getClassification(birdLabel(a), classifications);
-      const cb = getClassification(birdLabel(b), classifications);
-      const oa = order[ca] ?? 2;
-      const ob = order[cb] ?? 2;
-      if (oa !== ob) return oa - ob;
-      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
-    });
+    // v6.1: when sort is "asc" (oldest first), pure chronological - ignore
+    // classification grouping so backlog can be ground through in time order.
+    // Default "desc" preserves classification-grouped + newest-first ordering.
+    if (liveSortDir === "asc") {
+      items.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+    } else {
+      const order = { priority: 0, suspect: 1, normal: 2 };
+      items.sort((a, b) => {
+        const ca = getClassification(birdLabel(a), classifications);
+        const cb = getClassification(birdLabel(b), classifications);
+        const oa = order[ca] ?? 2;
+        const ob = order[cb] ?? 2;
+        if (oa !== ob) return oa - ob;
+        return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+      });
+    }
     return items;
-  }, [detections, viewFilter, confThreshold, classifications]);
+  }, [detections, viewFilter, confThreshold, classifications, liveSortDir]);
 
   // v5.9: compute "effective species" for a detection — user's correction
   // (manual_label) wins over BirdNET's guess (species_guess). Returns
@@ -2941,6 +2976,25 @@ function App() {
                 {liveItems.length > 50
                   ? `Showing 50 of ${liveItems.length} alerts`
                   : `${liveItems.length} alert${liveItems.length === 1 ? "" : "s"}`}
+                {" "}
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setLiveSortDir(liveSortDir === "desc" ? "asc" : "desc");
+                  }}
+                  title={liveSortDir === "desc" ? "Switch to oldest first" : "Switch to newest first"}
+                  style={{
+                    marginLeft: 8, padding: "2px 8px", fontSize: 11,
+                    background: "var(--surface-2)",
+                    border: "1px solid var(--border)",
+                    borderRadius: 999,
+                    color: "var(--text-2)",
+                    cursor: "pointer",
+                    fontFamily: "inherit",
+                  }}
+                >
+                  {liveSortDir === "desc" ? "Newest ↓" : "Oldest ↑"}
+                </button>
               </div>
             )}
 
