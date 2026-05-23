@@ -113,7 +113,7 @@ const PI_AUDIO_BASE = "https://eaglecam.taile03fa1.ts.net:8443";
 // ─── App version ────────────────────────────────────────────────────
 // Bump on every deploy. Visible in the footer so we know which build is
 // running when investigating bug reports or screenshots.
-const APP_VERSION = "v6.1";
+const APP_VERSION = "v6.2";
 const APP_VERSION_DATE = "2026-05-23";
 
 // ─── v5.8.0: Service Worker registration ──────────────────────────────
@@ -1045,6 +1045,10 @@ function DetectionCard({ d, expanded, onToggle, onDismiss, onRestore, mode,
   // v6.1: customLabel holds user-typed species when selectedSource === "custom".
   // Save button promotes the typed value to top without writing to DB.
   const [customLabel, setCustomLabel] = useState("");
+  // v6.2: addToCorpus controls whether ticking ALSO saves the clip to corpus.
+  // Default OFF - user must opt in to corpus inclusion. Lets you confirm a
+  // verdict without polluting training data with noisy/multi-bird clips.
+  const [addToCorpus, setAddToCorpus] = useState(false);
 
   // Helpers to get top and bottom prediction details based on selectedSource.
   // v6.1: "custom" source means user typed a different species via Save.
@@ -1262,21 +1266,38 @@ function DetectionCard({ d, expanded, onToggle, onDismiss, onRestore, mode,
           {onConfirm && (
             <button
               onClick={(e) => handleAction(e, () => {
-                // v6: Swap UI commit - tick saves the current top selection
-                // to corpus AND records the verdict in the new schema.
-                if (useSwapUI && onSetSwapVerdict) {
-                  const top = getTopPrediction();
-                  onSetSwapVerdict(d.id, {
-                    verdict: top.source,
-                    speciesTruth: top.species,
-                    addToCorpus: true,
-                    source: top.source,
-                  });
-                  return;
+                // v6.2: Tick = Confirm. Records the verdict regardless of
+                // whether the clip is being saved to corpus. The checkbox
+                // (addToCorpus) controls whether the clip becomes training
+                // data. Default OFF - user must opt in.
+                if (onSetSwapVerdict) {
+                  // Determine the top prediction:
+                  //   swap mode: use getTopPrediction (handles BN/BB/custom)
+                  //   legacy mode: use the displayed species (manual_label > remap > BN)
+                  let topSpecies, topSource;
+                  if (useSwapUI) {
+                    const top = getTopPrediction();
+                    topSpecies = top.species;
+                    topSource = top.source;
+                  } else {
+                    topSpecies = (meta.manual_label || (remap && remap.primary) || d.species_guess || "").trim();
+                    // Non-swap card with manual_label or remap: source counts
+                    // as "neither" since user/system overrode BirdNET.
+                    // No manual_label and no remap: it's just BirdNET.
+                    topSource = (meta.manual_label || remap) ? "neither" : "birdnet";
+                  }
+                  if (topSpecies) {
+                    onSetSwapVerdict(d.id, {
+                      verdict: topSource,
+                      speciesTruth: topSpecies,
+                      addToCorpus: addToCorpus,
+                      source: topSource,
+                    });
+                    return;
+                  }
                 }
-                // v5.5: when post-processor has remapped, "confirm" means
-                // "confirm the REMAPPED species, not BirdNET's". Write as
-                // manual_label so the Pi promotes to the correct corpus folder.
+                // Fallback if onSetSwapVerdict not wired (defensive): legacy
+                // confirm path. Should not happen in live mode.
                 if (remap && onSetManualLabel) {
                   onSetManualLabel(d.id, remap.primary, clipFilename);
                 } else {
@@ -1306,18 +1327,10 @@ function DetectionCard({ d, expanded, onToggle, onDismiss, onRestore, mode,
               onDismiss wasn't wired for history. */}
           <button
             onClick={(e) => handleAction(e, () => {
-              // v6: Swap UI commit - cross records the verdict in the new
-              // schema but does NOT save the clip to corpus.
-              if (useSwapUI && onSetSwapVerdict && mode === "live") {
-                const top = getTopPrediction();
-                onSetSwapVerdict(d.id, {
-                  verdict: top.source,
-                  speciesTruth: top.species,
-                  addToCorpus: false,
-                  source: top.source,
-                });
-                return;
-              }
+              // v6.2: Cross = pure dismiss. No verdict logged. No clip
+              // saved. The card disappears and that's it - no judgement
+              // captured. Use when you genuinely don't know what the
+              // species is (3 birds in clip, garbled audio, etc).
               if (mode === "history" && onReview) {
                 onReview(d.id);
               } else if (onDismiss) {
@@ -1573,6 +1586,34 @@ function DetectionCard({ d, expanded, onToggle, onDismiss, onRestore, mode,
           <div style={{ fontSize: 13, color: "var(--text-2)", marginTop: 6 }}>
             {fmtAge(d.created_at)}
           </div>
+          {/* v6.2: opt-in checkbox for adding to training corpus.
+              Default OFF. Only shown when card has action buttons
+              available (live mode or unactioned history). */}
+          {showActionButtons && !actioned && (
+            <label
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                marginTop: 8, display: "inline-flex",
+                alignItems: "center", gap: 6,
+                fontSize: 11, color: "var(--text-2)",
+                cursor: "pointer",
+                userSelect: "none",
+              }}
+              title="When ticked, this clip will be saved to /training-corpus/<species>/ on confirm"
+            >
+              <input
+                type="checkbox"
+                checked={addToCorpus}
+                onChange={(e) => {
+                  e.stopPropagation();
+                  setAddToCorpus(e.target.checked);
+                }}
+                onClick={(e) => e.stopPropagation()}
+                style={{ cursor: "pointer", margin: 0 }}
+              />
+              <span>Save clip to training corpus</span>
+            </label>
+          )}
         </div>
         <div style={{ display: "flex", flexDirection: "column",
             alignItems: "flex-end", flexShrink: 0, gap: 6,
