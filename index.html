@@ -495,10 +495,22 @@ const SLUG_TO_TITLE_OVERRIDES = {
   "magpie-lark": "Magpie-lark",
   "not-bird": "Not-bird",
 };
+// v6.4: variant remap for Title-Case strings that should collapse to
+// a single canonical form. Keyed by lowercase-stripped input.
+const TITLE_CASE_REMAPS = {
+  "not bird": "Not-bird",
+  "notbird":  "Not-bird",
+};
 function canonicaliseSpeciesLabel(s) {
   if (!s) return s;
   const trimmed = String(s).trim();
   if (!trimmed) return trimmed;
+  // v6.4: apply variant remap BEFORE slug check. Lookup uses lowercase
+  // form so "Not Bird", "Not bird", "NOT BIRD" all collapse.
+  const remapKey = trimmed.toLowerCase();
+  if (TITLE_CASE_REMAPS[remapKey]) {
+    return TITLE_CASE_REMAPS[remapKey];
+  }
   // Is it slug form? all-lowercase + has hyphen + no spaces
   const isSlug = (
     trimmed === trimmed.toLowerCase() &&
