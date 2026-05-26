@@ -2263,7 +2263,11 @@ function App() {
   // population, and total clip count display.
   const effectiveSpecies = (d) => {
     const meta = (d && d.metadata) || {};
-    return ((meta.manual_label || "").trim() || ((d && d.species_guess) || "").trim());
+    // v6.3: canonicalise so slug forms like "rainbow-lorikeet" collapse
+    // to Title Case before being used by filter list, filter comparison,
+    // and the settings classification list.
+    const raw = ((meta.manual_label || "").trim() || ((d && d.species_guess) || "").trim());
+    return canonicaliseSpeciesLabel(raw);
   };
 
   // v5.7: derive sorted unique species_guess values from currently-loaded
