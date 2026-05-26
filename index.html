@@ -479,6 +479,42 @@ function consolidateLabel(label) {
   return LABEL_CONSOLIDATION_REMAP[key] || label;
 }
 
+// ─── v6.2: Canonical species naming (slug -> Title Case) ────────────
+// BirdNET writes species in Title Case (e.g. "Rainbow Lorikeet").
+// BoundaryBirds writes lowercase-hyphenated slugs ("rainbow-lorikeet").
+// When a slug form leaks into manual_label, the picker shows two
+// entries for the same bird ("Rainbow Lorikeet" + "rainbow-lorikeet").
+// This function converts slug form to Title Case so all surfaces use
+// the canonical form. Non-slug input is passed through unchanged.
+//
+// Detection of slug form: all lowercase + at least one hyphen + no
+// spaces. Anything with a space, or anything with uppercase, is left
+// alone so user-typed labels like "Not bird" or "BellBird" pass through.
+const SLUG_TO_TITLE_OVERRIDES = {
+  "sulphur-crested-cockatoo": "Sulphur-crested Cockatoo",
+  "magpie-lark": "Magpie-lark",
+  "not-bird": "Not-bird",
+};
+function canonicaliseSpeciesLabel(s) {
+  if (!s) return s;
+  const trimmed = String(s).trim();
+  if (!trimmed) return trimmed;
+  // Is it slug form? all-lowercase + has hyphen + no spaces
+  const isSlug = (
+    trimmed === trimmed.toLowerCase() &&
+    trimmed.indexOf("-") !== -1 &&
+    trimmed.indexOf(" ") === -1
+  );
+  if (!isSlug) return trimmed;
+  // Override map for tricky cases (preserved internal hyphens)
+  if (SLUG_TO_TITLE_OVERRIDES[trimmed]) {
+    return SLUG_TO_TITLE_OVERRIDES[trimmed];
+  }
+  // Generic: hyphens to spaces, capitalise each word.
+  return trimmed.split("-").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
+}
+
+
 // Date-bucket label for the History page grouping.
 // Boundaries are based on local-time calendar dates (not strict 24h windows)
 // so "Today" means today's date, "Yesterday" means yesterday's date, etc.
@@ -2471,7 +2507,9 @@ function App() {
     const counts = new Map();
     function bump(s) {
       if (!s) return;
-      const trimmed = s.trim();
+      // v6.2: canonicalise slug forms to Title Case BEFORE counting so
+      // "rainbow-lorikeet" and "Rainbow Lorikeet" collapse to one entry.
+      const trimmed = canonicaliseSpeciesLabel(s);
       if (!trimmed) return;
       counts.set(trimmed, (counts.get(trimmed) || 0) + 1);
     }
@@ -2530,7 +2568,10 @@ function App() {
   // to history in one action rather than requiring a second tap on X.
   const setManualLabel = useCallback(async (id, manualLabel, clipFilename) => {
     if (!manualLabel) return;
-    const labelTrim = manualLabel.trim();
+    // v6.2: canonicalise BEFORE writing to DB. If user picked a slug-form
+    // suggestion (legacy contamination), force Title Case here so we
+    // never propagate "rainbow-lorikeet" style values forward.
+    const labelTrim = canonicaliseSpeciesLabel(manualLabel);
 
     // Optimistic update of local detection - label AND dismissed in one go
     let prevMeta = null;
