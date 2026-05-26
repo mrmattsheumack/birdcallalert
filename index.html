@@ -858,7 +858,8 @@ function SettingsSheet({ open, onClose, viewFilter, setViewFilter, notifMode, se
             ) : (
               <div style={{ background: "var(--surface)", border: "1px solid var(--border)",
                   borderRadius: "var(--r-md)", overflow: "hidden" }}>
-                {allSeenSpecies.map((s, i) => {
+                {/* v6.6: A-Z sort by displayed common name */}
+                {allSeenSpecies.slice().sort((a, b) => (a.common || a.label || '').localeCompare(b.common || b.label || '', undefined, {sensitivity: 'base'})).map((s, i) => {
                   const cls = classifications[s.label] || "normal";
                   const cfg = CLASSIFICATIONS[cls];
                   const order = ["normal", "priority", "suspect", "muted"];
@@ -985,7 +986,8 @@ function SettingsSheet({ open, onClose, viewFilter, setViewFilter, notifMode, se
                   <div style={{
                     display: "flex", flexDirection: "column", gap: 4,
                   }}>
-                    {corpusStats.entries.map(e => {
+                    {/* v6.6: A-Z sort by displayed label */}
+                    {corpusStats.entries.slice().sort((a, b) => (a.label || '').localeCompare(b.label || '', undefined, {sensitivity: 'base'})).map(e => {
                       // v5.7.5: 5-tier system via corpusTier helper
                       const { dot, dotColor } = corpusTier(e.count);
                       return (
@@ -1637,31 +1639,6 @@ function DetectionCard({ d, expanded, onToggle, onDismiss, onRestore, mode,
           {/* v6.2: opt-in checkbox for adding to training corpus.
               Default OFF. Only shown when card has action buttons
               available (live mode or unactioned history). */}
-          {showActionButtons && !actioned && (
-            <label
-              onClick={(e) => e.stopPropagation()}
-              style={{
-                marginTop: 8, display: "inline-flex",
-                alignItems: "center", gap: 6,
-                fontSize: 11, color: "var(--text-2)",
-                cursor: "pointer",
-                userSelect: "none",
-              }}
-              title="When ticked, this clip will be saved to /training-corpus/<species>/ on confirm"
-            >
-              <input
-                type="checkbox"
-                checked={addToCorpus}
-                onChange={(e) => {
-                  e.stopPropagation();
-                  setAddToCorpus(e.target.checked);
-                }}
-                onClick={(e) => e.stopPropagation()}
-                style={{ cursor: "pointer", margin: 0 }}
-              />
-              <span>Save clip to training corpus</span>
-            </label>
-          )}
         </div>
         <div style={{ display: "flex", flexDirection: "column",
             alignItems: "flex-end", flexShrink: 0, gap: 6,
@@ -1702,6 +1679,39 @@ function DetectionCard({ d, expanded, onToggle, onDismiss, onRestore, mode,
       {expanded && (
         <div style={{ marginTop: 12, paddingTop: 12,
             borderTop: "1px solid var(--border)" }}>
+
+          {/* v6.5: Save-clip checkbox moved INTO dropdown to prevent
+              accidental ticks before listening. Right-aligned so it sits
+              away from the audio play button. Same state + handlers as
+              the previous header-level version. */}
+          {showActionButtons && !actioned && (
+            <div style={{ display: "flex", justifyContent: "flex-end",
+                marginBottom: 8 }}>
+              <label
+                onClick={(e) => e.stopPropagation()}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center", gap: 6,
+                  fontSize: 11, color: "var(--text-2)",
+                  cursor: "pointer",
+                  userSelect: "none",
+                }}
+                title="When ticked, this clip will be saved to /training-corpus/<species>/ on confirm"
+              >
+                <input
+                  type="checkbox"
+                  checked={addToCorpus}
+                  onChange={(e) => {
+                    e.stopPropagation();
+                    setAddToCorpus(e.target.checked);
+                  }}
+                  onClick={(e) => e.stopPropagation()}
+                  style={{ cursor: "pointer", margin: 0 }}
+                />
+                <span>Save clip to training corpus</span>
+              </label>
+            </div>
+          )}
 
           {/* v5.4.1: Inline audio player. Previously this was a "Play in new
               tab" link because the Pi served plain HTTP and the HTTPS web app
