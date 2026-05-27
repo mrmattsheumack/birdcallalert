@@ -469,6 +469,10 @@ const LABEL_CONSOLIDATION_REMAP = {
   "australian raven":  "Raven",
   "forest raven":      "Raven",
   "little raven":      "Raven",
+  // v6.7: also collapse the canonical lowercase forms (BB output) so
+  // they merge with the Title Case variants in the picker/history filter.
+  "wattlebird":        "Wattlebird",
+  "raven":             "Raven",
 };
 
 // Apply consolidation: returns the consolidated pretty form for known
@@ -508,6 +512,11 @@ function canonicaliseSpeciesLabel(s) {
   // v6.4: apply variant remap BEFORE slug check. Lookup uses lowercase
   // form so "Not Bird", "Not bird", "NOT BIRD" all collapse.
   const remapKey = trimmed.toLowerCase();
+  // v6.7: consolidation remap (e.g. "Little Wattlebird" -> "Wattlebird")
+  // takes precedence so sub-species collapse happens regardless of case.
+  if (LABEL_CONSOLIDATION_REMAP[remapKey]) {
+    return LABEL_CONSOLIDATION_REMAP[remapKey];
+  }
   if (TITLE_CASE_REMAPS[remapKey]) {
     return TITLE_CASE_REMAPS[remapKey];
   }
@@ -632,11 +641,6 @@ function SettingsSheet({ open, onClose, viewFilter, setViewFilter, notifMode, se
                          allSeenSpecies, notifPerm, requestNotif,
                          corpusStats }) {
   if (!open) return null;
-
-  // v5.2: local state for whether the corpus stats panel is expanded.
-  // Default collapsed - this is information you check occasionally, not
-  // a primary settings interaction.
-  const [corpusOpen, setCorpusOpen] = React.useState(false);
 
   function setSpeciesClassification(label, state) {
     setClassifications(prev => {
@@ -923,100 +927,127 @@ function SettingsSheet({ open, onClose, viewFilter, setViewFilter, notifMode, se
             </div>
           </section>
 
-          {/* ─── Training corpus stats ────────────────────────────────
-              v5.2: shows a per-species count of clips contributed to the
-              training corpus (either via Confirm or Correct). Collapsible
-              and default-closed so it doesn't clutter regular settings use.
-              Source: queried from Supabase as the count of rows per
-              normalised species label where either manual_label is set OR
-              confirmed = true. */}
-          <section style={{
-            marginTop: 20,
-            border: "1px solid var(--border)",
-            borderRadius: "var(--r-md)",
-            overflow: "hidden",
-          }}>
-            <button
-              onClick={() => setCorpusOpen(o => !o)}
-              style={{
-                width: "100%", display: "flex", alignItems: "center",
-                gap: 8, padding: "12px 14px",
-                background: "transparent", border: "none",
-                cursor: "pointer", textAlign: "left",
-              }}>
-              <span style={{
-                display: "inline-block", width: 14, fontSize: 11,
-                color: "var(--text-2)",
-                transform: corpusOpen ? "rotate(90deg)" : "rotate(0deg)",
-                transition: "transform 0.15s ease",
-              }}>▶</span>
-              <span style={{
-                fontSize: 13, fontWeight: 700, color: "var(--text)",
-                letterSpacing: 0.3,
-              }}>Training corpus</span>
-              <span style={{
-                fontSize: 12, color: "var(--text-3)", marginLeft: "auto",
-              }}>
-                {corpusStats
-                  ? `${corpusStats.total} clips · ${corpusStats.entries.length} species`
-                  : "loading…"}
-              </span>
-            </button>
-            {corpusOpen && (
-              <div style={{
-                padding: "0 14px 14px",
-                borderTop: "1px solid var(--border)",
-              }}>
-                <p style={{
-                  fontSize: 12, color: "var(--text-3)",
-                  margin: "10px 0 12px", lineHeight: 1.5,
-                }}>
-                  Clips you've confirmed or corrected.
-                  ● 100+ saturated, ● 80-99 ready, ◐ 50-79 sufficient,
-                  ◐ 15-49 building, no dot below 15.
-                </p>
-                {(!corpusStats || corpusStats.entries.length === 0) ? (
-                  <div style={{
-                    padding: "12px 0", fontSize: 13,
-                    color: "var(--text-3)", textAlign: "center",
-                  }}>
-                    No clips contributed yet.
-                  </div>
-                ) : (
-                  <div style={{
-                    display: "flex", flexDirection: "column", gap: 4,
-                  }}>
-                    {/* v6.6: A-Z sort by displayed label */}
-                    {corpusStats.entries.slice().sort((a, b) => (a.label || '').localeCompare(b.label || '', undefined, {sensitivity: 'base'})).map(e => {
-                      // v5.7.5: 5-tier system via corpusTier helper
-                      const { dot, dotColor } = corpusTier(e.count);
-                      return (
-                        <div key={e.label} style={{
-                          display: "flex", alignItems: "baseline",
-                          padding: "6px 4px",
-                          borderBottom: "1px solid var(--border)",
-                          gap: 8,
-                        }}>
-                          <span style={{
-                            color: dotColor, fontSize: 14,
-                            width: 14, textAlign: "center",
-                          }}>{dot}</span>
-                          <span style={{
-                            flex: 1, fontSize: 13, color: "var(--text)",
-                          }}>{e.label}</span>
-                          <span style={{
-                            fontSize: 12, color: "var(--text-2)",
-                            fontVariantNumeric: "tabular-nums",
-                          }}>{e.count}</span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            )}
-          </section>
+        </div>
+      </div>
+    </div>
+  );
+}
 
+// ─── Corpus sheet (modal) ─── v6.8 ──────────────────────────────────
+// Training-corpus stats moved out of Settings into its own top-level
+// sheet. Triggered from the 📊 button in the header. Always-expanded
+// (no inner collapsible). Shows a metadata header with live model
+// version/accuracy plus the species count list sorted A-Z.
+function CorpusSheet({ open, onClose, corpusStats }) {
+  if (!open) return null;
+  // v6.8: live model metadata. Update these when the production model
+  // is replaced on the Pi. Source of truth = boundarybirds_v0.* on Pi.
+  const LIVE_MODEL_VERSION  = "v3a_ext";
+  const LIVE_MODEL_ACCURACY = "66.2%";
+  const LIVE_MODEL_CLASSES  = 16;
+  return (
+    <div onClick={onClose} style={{
+      position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)",
+      display: "flex", justifyContent: "center", alignItems: "flex-end",
+      zIndex: 100,
+    }}>
+      <div onClick={e => e.stopPropagation()} style={{
+        width: "100%", maxWidth: 600, maxHeight: "92vh",
+        background: "var(--bg)", borderTopLeftRadius: 20,
+        borderTopRightRadius: 20, overflow: "hidden",
+        display: "flex", flexDirection: "column",
+      }}>
+        <div style={{
+          padding: "16px 20px 12px",
+          borderBottom: "1px solid var(--border)",
+          display: "flex", alignItems: "center", gap: 10,
+        }}>
+          <h1 style={{ fontSize: 20, fontWeight: 700, color: "var(--text)",
+              flex: 1, margin: 0 }}>Training corpus</h1>
+          <button onClick={onClose} aria-label="Close"
+            style={{
+              width: 36, height: 36, borderRadius: "50%",
+              background: "var(--surface)", color: "var(--text-2)",
+              border: "1px solid var(--border)", fontSize: 18,
+              cursor: "pointer",
+              display: "flex", alignItems: "center", justifyContent: "center",
+            }}>×</button>
+        </div>
+        <div style={{ padding: "16px 20px 24px", overflowY: "auto" }}>
+          {/* v6.8: Live model metadata header */}
+          <div style={{
+            marginBottom: 16, padding: "10px 12px",
+            background: "var(--surface)", border: "1px solid var(--border)",
+            borderRadius: "var(--r-md)",
+            display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap",
+          }}>
+            <span style={{
+              fontSize: 11, fontWeight: 700, color: "var(--text-3)",
+              letterSpacing: 0.6, textTransform: "uppercase",
+            }}>Live model</span>
+            <span style={{ fontSize: 13, fontWeight: 700, color: "var(--text)" }}>
+              {LIVE_MODEL_VERSION}
+            </span>
+            <span style={{ fontSize: 12, color: "var(--text-2)" }}>
+              · {LIVE_MODEL_ACCURACY} test acc · {LIVE_MODEL_CLASSES} classes
+            </span>
+          </div>
+          {/* Total summary */}
+          <div style={{
+            fontSize: 13, color: "var(--text-2)", marginBottom: 12,
+          }}>
+            {corpusStats
+              ? `${corpusStats.total} clips · ${corpusStats.entries.length} species`
+              : "loading…"}
+          </div>
+          <p style={{
+            fontSize: 12, color: "var(--text-3)",
+            margin: "0 0 12px", lineHeight: 1.5,
+          }}>
+            Clips you've confirmed or corrected.
+            ● 100+ saturated, ● 80-99 ready, ◐ 50-79 sufficient,
+            ◐ 15-49 building, no dot below 15.
+          </p>
+          {(!corpusStats || corpusStats.entries.length === 0) ? (
+            <div style={{
+              padding: "20px 16px", fontSize: 14,
+              color: "var(--text-2)",
+              background: "var(--surface)", border: "1px solid var(--border)",
+              borderRadius: "var(--r-md)", textAlign: "center",
+            }}>
+              No clips contributed yet.
+            </div>
+          ) : (
+            <div style={{
+              display: "flex", flexDirection: "column", gap: 4,
+            }}>
+              {/* v6.6: A-Z sort by displayed label */}
+              {corpusStats.entries.slice().sort((a, b) => (a.label || '').localeCompare(b.label || '', undefined, {sensitivity: 'base'})).map(e => {
+                // v5.7.5: 5-tier system via corpusTier helper
+                const { dot, dotColor } = corpusTier(e.count);
+                return (
+                  <div key={e.label} style={{
+                    display: "flex", alignItems: "baseline",
+                    padding: "8px 4px",
+                    borderBottom: "1px solid var(--border)",
+                    gap: 8,
+                  }}>
+                    <span style={{
+                      color: dotColor, fontSize: 14,
+                      width: 14, textAlign: "center",
+                    }}>{dot}</span>
+                    <span style={{
+                      flex: 1, fontSize: 13, color: "var(--text)",
+                    }}>{e.label}</span>
+                    <span style={{
+                      fontSize: 12, color: "var(--text-2)",
+                      fontVariantNumeric: "tabular-nums",
+                    }}>{e.count}</span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -1938,6 +1969,8 @@ function App() {
   const [error, setError] = useState(null);
   const [lastFetch, setLastFetch] = useState(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // v6.8: separate corpus sheet (top-level reference view).
+  const [corpusOpen, setCorpusOpen] = useState(false);
   const [expandedId, setExpandedId] = useState(null);
   const [now, setNow] = useState(Date.now());
 
@@ -2974,6 +3007,16 @@ function App() {
                 display: "flex", alignItems: "center", justifyContent: "center",
                 border: "1px solid " + (viewMode === "history" ? "var(--primary)" : "var(--border)"),
               }}>{viewMode === "history" ? "←" : "🗂"}</button>
+            {/* v6.8: Corpus sheet trigger */}
+            <button onClick={() => setCorpusOpen(true)} aria-label="Training corpus"
+              title="Training corpus"
+              style={{
+                width: 40, height: 40, borderRadius: "50%", border: "none",
+                background: "var(--surface)", color: "var(--text-2)",
+                fontSize: 18, cursor: "pointer",
+                display: "flex", alignItems: "center", justifyContent: "center",
+                border: "1px solid var(--border)",
+              }}>📊</button>
             <button onClick={() => setSettingsOpen(true)} aria-label="Settings"
               style={{
                 width: 40, height: 40, borderRadius: "50%", border: "none",
@@ -3430,6 +3473,12 @@ function App() {
         Bird Call Alert · {APP_VERSION} · {APP_VERSION_DATE}
       </footer>
 
+      {/* v6.8: Corpus sheet */}
+      <CorpusSheet
+        open={corpusOpen}
+        onClose={() => setCorpusOpen(false)}
+        corpusStats={corpusStats}
+      />
       {/* Settings sheet */}
       <SettingsSheet
         open={settingsOpen}
