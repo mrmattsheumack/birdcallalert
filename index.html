@@ -2880,7 +2880,7 @@ function App() {
         {
           method: "PATCH",
           headers: { ...SUPA_HEADERS, "Prefer": "return=minimal" },
-          body: JSON.stringify({ metadata: newMeta, dismissed: true }),
+          body: JSON.stringify({ metadata: newMeta, dismissed: true, add_to_corpus: true }),
         }
       );
       if (!r.ok) throw new Error(`Supabase PATCH ${r.status}`);
