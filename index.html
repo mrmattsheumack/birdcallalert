@@ -1120,8 +1120,14 @@ function DetectionCard({ d, expanded, onToggle, onDismiss, onRestore, mode,
   // Initial: whichever model has higher confidence.
   const _bnConfRaw = d.confidence || 0;
   const _bbConfRaw = d.bb_confidence || 0;
+  // Item C: when the card is region-flagged ("LIKELY MISIDENTIFIED") and BB
+  // has an opinion, default BB to the top prediction - BirdNET's guess is
+  // suspect for this region. User can still tap to swap back to BirdNET.
+  // Uses d.metadata directly (regionFlagged var is declared further down).
   const [selectedSource, setSelectedSource] = useState(
-    _bnConfRaw >= _bbConfRaw ? "birdnet" : "boundarybirds"
+    (d.metadata && d.metadata.region_match === false && d.bb_species)
+      ? "boundarybirds"
+      : (_bnConfRaw >= _bbConfRaw ? "birdnet" : "boundarybirds")
   );
   // v6.1: customLabel holds user-typed species when selectedSource === "custom".
   // Save button promotes the typed value to top without writing to DB.
@@ -1752,11 +1758,6 @@ function DetectionCard({ d, expanded, onToggle, onDismiss, onRestore, mode,
               hostname to resolve correctly. */}
           {clipUrl && (
             <div style={{ marginBottom: 12 }}>
-              <div style={{ fontSize: 10, color: "var(--text-3)",
-                  fontWeight: 600, letterSpacing: 0.5,
-                  textTransform: "uppercase", marginBottom: 6 }}>
-                Audio clip
-              </div>
               <audio
                 controls
                 preload="none"
@@ -1768,9 +1769,6 @@ function DetectionCard({ d, expanded, onToggle, onDismiss, onRestore, mode,
                   borderRadius: "var(--r-sm)",
                 }}
               />
-              <div style={{ fontSize: 11, color: "var(--text-3)", marginTop: 4, lineHeight: 1.4 }}>
-                Plays when Tailscale is running on this device.
-              </div>
             </div>
           )}
 
@@ -1782,11 +1780,6 @@ function DetectionCard({ d, expanded, onToggle, onDismiss, onRestore, mode,
               available everywhere. */}
           {clipUrl && (
             <div style={{ marginBottom: 12 }}>
-              <div style={{ fontSize: 10, color: "var(--text-3)",
-                  fontWeight: 600, letterSpacing: 0.5,
-                  textTransform: "uppercase", marginBottom: 6 }}>
-                What is this actually?
-              </div>
               <div style={{ display: "flex", gap: 6, position: "relative" }}>
                 <div style={{ flex: 1, position: "relative" }}>
                   <input
@@ -1803,7 +1796,7 @@ function DetectionCard({ d, expanded, onToggle, onDismiss, onRestore, mode,
                       setTimeout(() => setSuggestionsOpen(false), 150);
                     }}
                     onClick={(e) => e.stopPropagation()}
-                    placeholder="e.g. Bell Miner, or 'unknown' if not sure"
+                    placeholder="What is this actually? e.g. unknown"
                     style={{
                       width: "100%", padding: "8px 10px",
                       border: "1px solid var(--border)",
@@ -1875,17 +1868,6 @@ function DetectionCard({ d, expanded, onToggle, onDismiss, onRestore, mode,
                   }}
                 >{manualSaving ? "..." : "Save"}</button>
               </div>
-              <div style={{ fontSize: 11, color: "var(--text-3)", marginTop: 6, lineHeight: 1.4 }}>
-                Saving copies this clip to <code style={{
-                  background: "var(--surface-2)", padding: "1px 4px",
-                  borderRadius: 3, fontSize: 11 }}>training-corpus/&lt;label&gt;</code>
-                {" "}on the Pi. Used later for a custom classifier.
-                {confirmed && !corrected && (
-                  <span style={{ display: "block", marginTop: 4, color: "var(--text-2)" }}>
-                    Note: this will replace your previous confirmation.
-                  </span>
-                )}
-              </div>
             </div>
           )}
 
@@ -1932,7 +1914,6 @@ function DetectionCard({ d, expanded, onToggle, onDismiss, onRestore, mode,
                   hour: "2-digit", minute: "2-digit",
                   day: "2-digit", month: "short" }) },
               { l: "Confidence", v: `${conf}%` },
-              { l: "Detector", v: meta.detector || "birdnet" },
               { l: "Window", v: meta.start_time_secs != null
                   ? `${meta.start_time_secs.toFixed(1)}–${(meta.end_time_secs || 0).toFixed(1)}s`
                   : "—" },
@@ -1965,6 +1946,10 @@ function DetectionCard({ d, expanded, onToggle, onDismiss, onRestore, mode,
 // ─── Main app ───────────────────────────────────────────────────────
 function App() {
   const [detections, setDetections] = useState([]);
+  // reappear-fix: IDs the user just actioned (dismiss/confirm/correct/swap).
+  // Maps id -> expiry timestamp. fetchLive keeps these hidden until the
+  // server catches up, so a poll mid-PATCH can't resurrect a handled card.
+  const pendingDismissRef = useRef(new Map());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [lastFetch, setLastFetch] = useState(null);
@@ -2127,7 +2112,23 @@ function App() {
         return;
       }
       const data = await r.json();
-      setDetections(data || []);
+      // reappear-fix: honour locally-pending dismissals. Prune expired
+      // entries and any the server now agrees are dismissed.
+      {
+        const pend = pendingDismissRef.current;
+        const tnow = Date.now();
+        for (const [pid, exp] of Array.from(pend.entries())) {
+          if (exp < tnow) pend.delete(pid);
+        }
+        const rows = (data || []).map(row => {
+          if (pend.has(row.id)) {
+            if (row.dismissed) { pend.delete(row.id); return row; }
+            return { ...row, dismissed: true };
+          }
+          return row;
+        });
+        setDetections(rows);
+      }
       setLastFetch(new Date());
       setError(null);
 
@@ -2596,6 +2597,9 @@ function App() {
   const setDismissed = useCallback(async (id, dismissed) => {
     // Optimistic update
     setDetections(prev => prev.map(d => d.id === id ? { ...d, dismissed } : d));
+    // reappear-fix: protect an optimistic dismiss from poll clobber.
+    if (dismissed) pendingDismissRef.current.set(id, Date.now() + 90000);
+    else pendingDismissRef.current.delete(id);
     try {
       const r = await fetch(
         `${SUPA_URL}/rest/v1/candidate_sightings?id=eq.${id}`,
@@ -2607,11 +2611,13 @@ function App() {
       );
       if (!r.ok) {
         // Roll back on failure
+        pendingDismissRef.current.delete(id);
         setDetections(prev => prev.map(d => d.id === id ? { ...d, dismissed: !dismissed } : d));
         setError(`Couldn't ${dismissed ? "clear" : "restore"} (${r.status})`);
         setTimeout(() => setError(null), 3000);
       }
     } catch (e) {
+      pendingDismissRef.current.delete(id);
       setDetections(prev => prev.map(d => d.id === id ? { ...d, dismissed: !dismissed } : d));
       setError("Network error");
       setTimeout(() => setError(null), 3000);
@@ -2649,6 +2655,8 @@ function App() {
         dismissed: true,
       };
     }));
+    // reappear-fix
+    pendingDismissRef.current.set(id, Date.now() + 90000);
 
     // PATCH the Supabase row's metadata + dismissed. We fetch the existing
     // metadata first to merge into the jsonb without clobbering other keys.
@@ -2682,6 +2690,7 @@ function App() {
       setTimeout(() => { try { corpusRefreshRef.current?.(); } catch {} }, 1500);
     } catch (e) {
       // Roll back both fields
+      pendingDismissRef.current.delete(id);
       setDetections(prev => prev.map(d => d.id === id
         ? { ...d, metadata: prevMeta, dismissed: prevDismissed } : d));
       setError("Couldn't save label");
@@ -2802,6 +2811,8 @@ function App() {
       }
       return { ...d, metadata: optMeta, dismissed: true };
     }));
+    // reappear-fix
+    pendingDismissRef.current.set(id, Date.now() + 90000);
 
     try {
       // Fetch current metadata to merge without clobber
@@ -2846,6 +2857,7 @@ function App() {
         setTimeout(() => { try { corpusRefreshRef.current?.(); } catch {} }, 1500);
       }
     } catch (e) {
+      pendingDismissRef.current.delete(id);
       setDetections(prev => prev.map(d => d.id === id
         ? { ...d, metadata: prevMeta, dismissed: prevDismissed } : d));
       setError("Couldn't save verdict");
@@ -2866,6 +2878,8 @@ function App() {
         dismissed: true,
       };
     }));
+    // reappear-fix
+    pendingDismissRef.current.set(id, Date.now() + 90000);
 
     try {
       const current = await fetch(
@@ -2886,6 +2900,7 @@ function App() {
       if (!r.ok) throw new Error(`Supabase PATCH ${r.status}`);
       setTimeout(() => { try { corpusRefreshRef.current?.(); } catch {} }, 1500);
     } catch (e) {
+      pendingDismissRef.current.delete(id);
       setDetections(prev => prev.map(d => d.id === id
         ? { ...d, metadata: prevMeta, dismissed: prevDismissed } : d));
       setError("Couldn't confirm");
