@@ -521,6 +521,11 @@ function canonicaliseSpeciesLabel(s) {
     return TITLE_CASE_REMAPS[remapKey];
   }
   // Is it slug form? all-lowercase + has hyphen + no spaces
+  // v6.11: lowercase single-word (no hyphen, no space) - Title Case it.
+  // Catches BB slugs like "polly", "wattlebird", "raven", "cricket".
+  if (/^[a-z]+$/.test(trimmed)) {
+    return trimmed[0].toUpperCase() + trimmed.slice(1);
+  }
   const isSlug = (
     trimmed === trimmed.toLowerCase() &&
     trimmed.indexOf("-") !== -1 &&
@@ -532,6 +537,39 @@ function canonicaliseSpeciesLabel(s) {
     return SLUG_TO_TITLE_OVERRIDES[trimmed];
   }
   // Generic: hyphens to spaces, capitalise each word.
+  return trimmed.split("-").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
+}
+
+// v6.11: write-side canonicaliser. Same slug->Title and variant-spelling
+// normalisation as canonicaliseSpeciesLabel, but DELIBERATELY skips the
+// LABEL_CONSOLIDATION_REMAP (sub-species collapse). Used when writing to
+// the DB so historic ground truth preserves sub-species ("Little Raven",
+// "Red Wattlebird" etc) for future class-split work. Display layer still
+// uses the full canonicaliser, so the UI continues to collapse for counts.
+function canonicaliseForWrite(s) {
+  if (!s) return s;
+  const trimmed = String(s).trim();
+  if (!trimmed) return trimmed;
+  const remapKey = trimmed.toLowerCase();
+  // Spelling variants are fine to normalise (e.g. "Not bird" -> "Not-bird")
+  if (TITLE_CASE_REMAPS[remapKey]) {
+    return TITLE_CASE_REMAPS[remapKey];
+  }
+  // INTENTIONALLY skip LABEL_CONSOLIDATION_REMAP - preserve sub-species on write.
+  // v6.11: lowercase single-word (no hyphen, no space) - Title Case it.
+  // Catches BB slugs like "polly", "wattlebird", "raven", "cricket".
+  if (/^[a-z]+$/.test(trimmed)) {
+    return trimmed[0].toUpperCase() + trimmed.slice(1);
+  }
+  const isSlug = (
+    trimmed === trimmed.toLowerCase() &&
+    trimmed.indexOf("-") !== -1 &&
+    trimmed.indexOf(" ") === -1
+  );
+  if (!isSlug) return trimmed;
+  if (SLUG_TO_TITLE_OVERRIDES[trimmed]) {
+    return SLUG_TO_TITLE_OVERRIDES[trimmed];
+  }
   return trimmed.split("-").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
 }
 
@@ -1147,7 +1185,7 @@ function DetectionCard({ d, expanded, onToggle, onDismiss, onRestore, mode,
     if (selectedSource === "birdnet") {
       return { species: d.species_guess, conf: _bnConfRaw, source: "birdnet" };
     }
-    return { species: d.bb_species, conf: _bbConfRaw, source: "boundarybirds" };
+    return { species: canonicaliseSpeciesLabel(d.bb_species), conf: _bbConfRaw, source: "boundarybirds" };
   };
   const getBottomPrediction = () => {
     // When custom is on top, bottom shows BirdNET as the revert option.
@@ -1156,7 +1194,7 @@ function DetectionCard({ d, expanded, onToggle, onDismiss, onRestore, mode,
       return { species: d.species_guess, conf: _bnConfRaw, source: "birdnet" };
     }
     if (selectedSource === "birdnet") {
-      return { species: d.bb_species, conf: _bbConfRaw, source: "boundarybirds" };
+      return { species: canonicaliseSpeciesLabel(d.bb_species), conf: _bbConfRaw, source: "boundarybirds" };
     }
     return { species: d.species_guess, conf: _bnConfRaw, source: "birdnet" };
   };
@@ -1626,7 +1664,9 @@ function DetectionCard({ d, expanded, onToggle, onDismiss, onRestore, mode,
           {d.bb_species && !useSwapUI && (() => {
             const _bbNorm = (s) => {
               if (!s) return "";
-              const k = String(s).trim().toLowerCase();
+              // v6.11: normalise hyphens to spaces so slug "common-myna" and
+              // Title "Common Myna" compare equal here.
+              const k = String(s).trim().toLowerCase().replace(/-/g, " ");
               const remaps = {
                 "little wattlebird": "wattlebird",
                 "red wattlebird": "wattlebird",
@@ -1660,7 +1700,7 @@ function DetectionCard({ d, expanded, onToggle, onDismiss, onRestore, mode,
                   : "BoundaryBirds disagrees - listen to verify"}>
                 <span style={{ fontSize: 10, fontWeight: 700,
                     color: labelColor, letterSpacing: 0.5 }}>BB</span>
-                <strong style={{ fontWeight: 600 }}>{d.bb_species}</strong>
+                <strong style={{ fontWeight: 600 }}>{canonicaliseSpeciesLabel(d.bb_species)}</strong>
                 <span style={{ color: "var(--text-3)" }}>.</span>
                 <span>{bbConfPct}%</span>
                 {!agrees && (
@@ -2539,10 +2579,30 @@ function App() {
   const speciesByLabel = useMemo(() => {
     const m = new Map();
     for (const d of detections) {  // use unfiltered list so settings sees everything in window
-      const label = birdLabel(d);
+      // v6.10: build the species list from the RESOLVED species, not just
+      // BirdNET's raw guess. If the user corrected this clip (manual_label),
+      // key + display by the canonical corrected name so correction-only
+      // species (e.g. "Common Myna", which BirdNET never emits directly -
+      // it guesses Satin Bowerbird / Olive-backed Oriole) actually appear
+      // in Settings and can be classified/muted. Uncorrected clips keep the
+      // existing birdLabel key so prior classifications are preserved.
+      const md = d.metadata || {};
+      // v6.10: resolve the TRUE species from the best available signal.
+      // Order: species_truth (set by swap-UI tick) -> manual_label (typed
+      // correction) -> confirmed (user accepted BirdNET). Canonicalise so
+      // naming variants ("Common Myna" vs "common-myna") collapse to one
+      // row. This surfaces species reached by TAPPING the swap UI (e.g.
+      // Common Myna, which BirdNET never emits - it guesses Satin Bowerbird
+      // / Olive-backed Oriole), not just typed corrections.
+      const _truthRaw = d.species_truth
+        || md.manual_label
+        || (md.confirmed === true ? d.species_guess : null);
+      const corrected = _truthRaw ? canonicaliseSpeciesLabel(_truthRaw) : null;
+      const label = corrected || birdLabel(d);
+      const displayCommon = corrected || canonicaliseSpeciesLabel(d.species_guess);
       const e = m.get(label) || {
-        label, common: d.species_guess, count: 0, latestTs: null, maxConf: 0,
-        scientific: (d.metadata || {}).scientific_name || null,
+        label, common: displayCommon, count: 0, latestTs: null, maxConf: 0,
+        scientific: corrected ? null : (md.scientific_name || null),
       };
       e.count += 1;
       const ts = new Date(d.created_at).getTime();
@@ -2788,7 +2848,10 @@ function App() {
   //   addToCorpus: true (tick) or false (cross)
   //   source: same as verdict, kept for clarity in call sites
   const setSwapVerdict = useCallback(async (id, args) => {
-    const { verdict, speciesTruth, addToCorpus, source } = args;
+    const { verdict, speciesTruth: _rawTruth, addToCorpus, source } = args;
+    // v6.11: canonicalise on write so DB stops accumulating slug/Title variants.
+    // Preserves sub-species (Little Raven, Red Wattlebird) so future splits work.
+    const speciesTruth = canonicaliseForWrite(_rawTruth);
     let prevMeta = null;
     let prevDismissed = null;
     // Optimistic local update. For tick (addToCorpus=true):
