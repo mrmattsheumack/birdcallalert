@@ -2696,7 +2696,10 @@ function App() {
     // v6.2: canonicalise BEFORE writing to DB. If user picked a slug-form
     // suggestion (legacy contamination), force Title Case here so we
     // never propagate "rainbow-lorikeet" style values forward.
-    const labelTrim = canonicaliseSpeciesLabel(manualLabel);
+    // v6.11: use canonicaliseForWrite to preserve sub-species ("Little Raven"
+    // stays "Little Raven", "Red Wattlebird" stays "Red Wattlebird") so future
+    // sub-species class splits have ground truth. Matches setSwapVerdict policy.
+    const labelTrim = canonicaliseForWrite(manualLabel);
 
     // Optimistic update of local detection - label AND dismissed in one go
     let prevMeta = null;
