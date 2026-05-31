@@ -1177,6 +1177,9 @@ function DetectionCard({ d, expanded, onToggle, onDismiss, onRestore, mode,
   // Default OFF - user must opt in to corpus inclusion. Lets you confirm a
   // verdict without polluting training data with noisy/multi-bird clips.
   const [addToCorpus, setAddToCorpus] = useState(false);
+  // v6.15: bothAlsoCorrect: opt-in flag, when ticked it modifies the
+  // tick button to write bb_also_correct=true. Resets when card unmounts.
+  const [bothAlsoCorrect, setBothAlsoCorrect] = useState(false);
 
   // Helpers to get top and bottom prediction details based on selectedSource.
   // v6.1: "custom" source means user typed a different species via Save.
@@ -1420,6 +1423,8 @@ function DetectionCard({ d, expanded, onToggle, onDismiss, onRestore, mode,
                       speciesTruth: topSpecies,
                       addToCorpus: addToCorpus,
                       source: topSource,
+                      // v6.15: opt-in flag from checkbox below classification
+                      bbAlsoCorrect: bothAlsoCorrect,
                     });
                     return;
                   }
@@ -1914,44 +1919,6 @@ function DetectionCard({ d, expanded, onToggle, onDismiss, onRestore, mode,
             </div>
           )}
 
-          {/* v6.14: "Both correct" button - for multi-bird clips where
-              BirdNET and BB both name real species present in the clip.
-              Writes species_truth=top + bb_also_correct=true. No corpus. */}
-          {useSwapUI && showActionButtons && !actioned && (
-            <div style={{ marginBottom: 12 }}>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  if (!onSetSwapVerdict) return;
-                  const top = getTopPrediction();
-                  if (!top.species) return;
-                  onSetSwapVerdict(d.id, {
-                    verdict: top.source,
-                    speciesTruth: top.species,
-                    addToCorpus: false,
-                    source: top.source,
-                    bbAlsoCorrect: true,
-                  });
-                }}
-                aria-label="Both BirdNET and BoundaryBirds are correct"
-                title="Multi-bird clip: both predictions are real species in this clip"
-                style={{
-                  width: "100%",
-                  padding: "8px 12px",
-                  background: "var(--surface-2)",
-                  color: "var(--text-2)",
-                  border: "1px solid var(--border)",
-                  borderRadius: "var(--r-sm)",
-                  fontSize: 12, fontWeight: 500,
-                  cursor: "pointer",
-                  fontFamily: "inherit",
-                }}
-              >
-                Both suggestions are correct
-              </button>
-            </div>
-          )}
-
           {/* Classification quick-toggle */}
           {mode === "live" && (
             <div style={{ marginBottom: 12 }}>
@@ -1985,6 +1952,38 @@ function DetectionCard({ d, expanded, onToggle, onDismiss, onRestore, mode,
               <div style={{ fontSize: 11, color: "var(--text-3)", marginTop: 6 }}>
                 Affects all detections of <strong>{d.species_guess}</strong>, current and future.
               </div>
+            </div>
+          )}
+
+          {/* v6.15: Both-correct checkbox. Opt-in metadata that the
+              tick button reads. Only shown when BB ran on this clip
+              and the card is actionable. Ticking it then clicking the
+              tick (top-right) writes bb_also_correct=true. */}
+          {useSwapUI && mode === "live" && showActionButtons && !actioned && (
+            <div style={{ marginBottom: 12 }}>
+              <label
+                onClick={(e) => e.stopPropagation()}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center", gap: 6,
+                  fontSize: 12, color: "var(--text-2)",
+                  cursor: "pointer",
+                  userSelect: "none",
+                }}
+                title="Tick if both BirdNET and BB are calling real species in this clip (multi-bird)"
+              >
+                <input
+                  type="checkbox"
+                  checked={bothAlsoCorrect}
+                  onChange={(e) => {
+                    e.stopPropagation();
+                    setBothAlsoCorrect(e.target.checked);
+                  }}
+                  onClick={(e) => e.stopPropagation()}
+                  style={{ cursor: "pointer", margin: 0 }}
+                />
+                <span>Both correct</span>
+              </label>
             </div>
           )}
 
