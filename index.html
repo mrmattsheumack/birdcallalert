@@ -396,9 +396,16 @@ function birdLabel(d) {
 // client-side from the user's classifications object (in App state, persisted
 // to localStorage) rather than read from a server-set flag.
 function isPriority(d, classifications) {
-  // v6.13: match Settings list key (canonical species_guess) for lookup consistency
-  const label = canonicaliseSpeciesLabel(d.species_guess) || birdLabel(d);
-  return getClassification(label, classifications) === "priority";
+  // v6.16: check BOTH BirdNET and BB predictions. If user marked a species
+  // priority, EITHER model naming it triggers priority (alerts, star badge,
+  // push notifications). isMuted/isSuspect remain BN-only by design.
+  const bnLabel = canonicaliseSpeciesLabel(d.species_guess) || birdLabel(d);
+  if (getClassification(bnLabel, classifications) === "priority") return true;
+  if (d.bb_species) {
+    const bbLabel = canonicaliseSpeciesLabel(d.bb_species);
+    if (bbLabel && getClassification(bbLabel, classifications) === "priority") return true;
+  }
+  return false;
 }
 
 // True if a detection's species is currently muted by the user.
