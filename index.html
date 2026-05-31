@@ -2598,7 +2598,11 @@ function App() {
         || md.manual_label
         || (md.confirmed === true ? d.species_guess : null);
       const corrected = _truthRaw ? canonicaliseSpeciesLabel(_truthRaw) : null;
-      const label = corrected || birdLabel(d);
+      // v6.12: canonicaliseSpeciesLabel on the fallback path too so that
+      // un-voted clips (which take birdLabel(d) = raw Title Case) collapse
+      // with voted clips (which take corrected = slug) under one key.
+      // Fixes Settings duplicate rows like 'Common Myna 70' + 'Common Myna 2'.
+      const label = corrected || canonicaliseSpeciesLabel(birdLabel(d));
       const displayCommon = corrected || canonicaliseSpeciesLabel(d.species_guess);
       const e = m.get(label) || {
         label, common: displayCommon, count: 0, latestTs: null, maxConf: 0,
