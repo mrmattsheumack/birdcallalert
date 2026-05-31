@@ -1914,6 +1914,44 @@ function DetectionCard({ d, expanded, onToggle, onDismiss, onRestore, mode,
             </div>
           )}
 
+          {/* v6.14: "Both correct" button - for multi-bird clips where
+              BirdNET and BB both name real species present in the clip.
+              Writes species_truth=top + bb_also_correct=true. No corpus. */}
+          {useSwapUI && showActionButtons && !actioned && (
+            <div style={{ marginBottom: 12 }}>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (!onSetSwapVerdict) return;
+                  const top = getTopPrediction();
+                  if (!top.species) return;
+                  onSetSwapVerdict(d.id, {
+                    verdict: top.source,
+                    speciesTruth: top.species,
+                    addToCorpus: false,
+                    source: top.source,
+                    bbAlsoCorrect: true,
+                  });
+                }}
+                aria-label="Both BirdNET and BoundaryBirds are correct"
+                title="Multi-bird clip: both predictions are real species in this clip"
+                style={{
+                  width: "100%",
+                  padding: "8px 12px",
+                  background: "var(--surface-2)",
+                  color: "var(--text-2)",
+                  border: "1px solid var(--border)",
+                  borderRadius: "var(--r-sm)",
+                  fontSize: 12, fontWeight: 500,
+                  cursor: "pointer",
+                  fontFamily: "inherit",
+                }}
+              >
+                Both suggestions are correct
+              </button>
+            </div>
+          )}
+
           {/* Classification quick-toggle */}
           {mode === "live" && (
             <div style={{ marginBottom: 12 }}>
@@ -2863,7 +2901,8 @@ function App() {
   //   addToCorpus: true (tick) or false (cross)
   //   source: same as verdict, kept for clarity in call sites
   const setSwapVerdict = useCallback(async (id, args) => {
-    const { verdict, speciesTruth: _rawTruth, addToCorpus, source } = args;
+    // v6.14: bbAlsoCorrect flag for "Both correct" multi-bird votes
+    const { verdict, speciesTruth: _rawTruth, addToCorpus, source, bbAlsoCorrect } = args;
     // v6.11: canonicalise on write so DB stops accumulating slug/Title variants.
     // Preserves sub-species (Little Raven, Red Wattlebird) so future splits work.
     const speciesTruth = canonicaliseForWrite(_rawTruth);
@@ -2913,6 +2952,7 @@ function App() {
         }
       }
       // PATCH body: new top-level columns + merged metadata + dismissed
+      // v6.14: include bb_also_correct only when explicitly true
       const body = {
         verdict,
         verdict_source: "user",
@@ -2921,6 +2961,9 @@ function App() {
         metadata: newMeta,
         dismissed: true,
       };
+      if (bbAlsoCorrect === true) {
+        body.bb_also_correct = true;
+      }
       const r = await fetch(
         `${SUPA_URL}/rest/v1/candidate_sightings?id=eq.${id}`,
         {
