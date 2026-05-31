@@ -396,19 +396,22 @@ function birdLabel(d) {
 // client-side from the user's classifications object (in App state, persisted
 // to localStorage) rather than read from a server-set flag.
 function isPriority(d, classifications) {
-  const label = birdLabel(d);
+  // v6.13: match Settings list key (canonical species_guess) for lookup consistency
+  const label = canonicaliseSpeciesLabel(d.species_guess) || birdLabel(d);
   return getClassification(label, classifications) === "priority";
 }
 
 // True if a detection's species is currently muted by the user.
 function isMuted(d, classifications) {
-  const label = birdLabel(d);
+  // v6.13: match Settings list key (canonical species_guess) for lookup consistency
+  const label = canonicaliseSpeciesLabel(d.species_guess) || birdLabel(d);
   return getClassification(label, classifications) === "muted";
 }
 
 // True if user has marked this species as suspect.
 function isSuspect(d, classifications) {
-  const label = birdLabel(d);
+  // v6.13: match Settings list key (canonical species_guess) for lookup consistency
+  const label = canonicaliseSpeciesLabel(d.species_guess) || birdLabel(d);
   return getClassification(label, classifications) === "suspect";
 }
 
@@ -2602,7 +2605,12 @@ function App() {
       // un-voted clips (which take birdLabel(d) = raw Title Case) collapse
       // with voted clips (which take corrected = slug) under one key.
       // Fixes Settings duplicate rows like 'Common Myna 70' + 'Common Myna 2'.
-      const label = corrected || canonicaliseSpeciesLabel(birdLabel(d));
+      // v6.13: use species_guess (not birdLabel) for key generation so the
+      // 'Common Myna_Acridotheres tristis' style suffix never enters the key.
+      // Display path already uses canonicaliseSpeciesLabel(d.species_guess).
+      // birdLabel(d) is kept as a last-resort fallback for edge cases.
+      const _canonGuess = canonicaliseSpeciesLabel(d.species_guess);
+      const label = corrected || _canonGuess || canonicaliseSpeciesLabel(birdLabel(d));
       const displayCommon = corrected || canonicaliseSpeciesLabel(d.species_guess);
       const e = m.get(label) || {
         label, common: displayCommon, count: 0, latestTs: null, maxConf: 0,
