@@ -113,8 +113,8 @@ const PI_AUDIO_BASE = "https://eaglecam.taile03fa1.ts.net:8443";
 // ─── App version ────────────────────────────────────────────────────
 // Bump on every deploy. Visible in the footer so we know which build is
 // running when investigating bug reports or screenshots.
-const APP_VERSION = "v6.2";
-const APP_VERSION_DATE = "2026-05-23";
+const APP_VERSION = "v6.17";
+const APP_VERSION_DATE = "2026-06-02";
 
 // ─── v5.8.0: Service Worker registration ──────────────────────────────
 // Registers /sw.js so registration.showNotification() works on Chrome
@@ -2000,7 +2000,6 @@ function DetectionCard({ d, expanded, onToggle, onDismiss, onRestore, mode,
               { l: "Detected", v: new Date(d.created_at).toLocaleString("en-AU", {
                   hour: "2-digit", minute: "2-digit",
                   day: "2-digit", month: "short" }) },
-              { l: "Confidence", v: `${conf}%` },
               { l: "Window", v: meta.start_time_secs != null
                   ? `${meta.start_time_secs.toFixed(1)}–${(meta.end_time_secs || 0).toFixed(1)}s`
                   : "—" },
@@ -2666,11 +2665,31 @@ function App() {
       e.maxConf = Math.max(e.maxConf, d.confidence || 0);
       m.set(label, e);
     }
+    // v6.17: ALSO include species with any non-default classification
+    // (muted/priority/suspect) even if not detected in the live window.
+    // Without this, muting a species "traps" it - it disappears from
+    // the Settings list because it no longer appears in the feed,
+    // leaving no UI to unmute. Uses the actual classifications key as
+    // label so the click handler mutates the right entry. Legacy keys
+    // ("Common Name_Scientific") and canonical keys ("Common Name") are
+    // both handled. count=0 + latestTs=0 so they sort to the bottom.
+    for (const [clsKey, clsState] of Object.entries(classifications || {})) {
+      if (clsState === "normal" || m.has(clsKey)) continue;
+      const parts = String(clsKey).split("_");
+      m.set(clsKey, {
+        label: clsKey,
+        common: canonicaliseSpeciesLabel(parts[0]) || clsKey,
+        scientific: parts[1] || null,
+        count: 0,
+        latestTs: 0,
+        maxConf: 0,
+      });
+    }
     // Add lastSeen as ISO string for easy display, sorted by recency
     return [...m.values()]
       .map(e => ({ ...e, lastSeen: e.latestTs ? new Date(e.latestTs).toISOString() : null }))
       .sort((a, b) => b.latestTs - a.latestTs);
-  }, [detections]);
+  }, [detections, classifications]);
 
   // v5.4.2: deduped label suggestions for the manual_label input autocomplete.
   // Combines two sources:
