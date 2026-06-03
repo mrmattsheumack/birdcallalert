@@ -113,8 +113,8 @@ const PI_AUDIO_BASE = "https://eaglecam.taile03fa1.ts.net:8443";
 // ─── App version ────────────────────────────────────────────────────
 // Bump on every deploy. Visible in the footer so we know which build is
 // running when investigating bug reports or screenshots.
-const APP_VERSION = "v6.17";
-const APP_VERSION_DATE = "2026-06-02";
+const APP_VERSION = "v7.0";
+const APP_VERSION_DATE = "2026-06-03";
 
 // ─── v5.8.0: Service Worker registration ──────────────────────────────
 // Registers /sw.js so registration.showNotification() works on Chrome
@@ -1162,19 +1162,31 @@ function DetectionCard({ d, expanded, onToggle, onDismiss, onRestore, mode,
   // v6: Swap UI - shown when this card qualifies (live + BB ran + not yet actioned).
   // Two prediction "buttons" stacked: higher-confidence at top, lower at bottom.
   // User can tap bottom to swap them. Top = "current selection" committed on tick.
-  const useSwapUI = mode === "live" && !!d.bb_species && !corrected && !confirmed && !reviewed;
+  const useSwapUI = (mode === "live" || mode === "history") && !!d.bb_species && !corrected && !confirmed && !reviewed;
 
   // selectedSource tracks which prediction is "the top one" right now.
   // Initial: whichever model has higher confidence.
   const _bnConfRaw = d.confidence || 0;
   const _bbConfRaw = d.bb_confidence || 0;
+  const _decConfRaw = d.decider_confidence || 0;
+  const hasDecider = !!d.decider_species;
+  const deciderReasonBadge = (() => {
+    const r = String(d.decider_reason || "").toLowerCase();
+    if (r.indexOf("agreement") === 0) return "both agree";
+    if (r.indexOf("pair+hour") === 0) return "time-of-day history";
+    if (r.indexOf("pair") === 0) return "history";
+    if (r.indexOf("bn-unreliable") === 0) return "BN unreliable";
+    if (r.indexOf("conf") === 0) return "confidence";
+    if (r.indexOf("fallback") === 0) return "best guess";
+    return d.decider_reason || "decider";
+  })();
   // Item C: when the card is region-flagged ("LIKELY MISIDENTIFIED") and BB
   // has an opinion, default BB to the top prediction - BirdNET's guess is
   // suspect for this region. User can still tap to swap back to BirdNET.
   // Uses d.metadata directly (regionFlagged var is declared further down).
   const [selectedSource, setSelectedSource] = useState(
-    (d.metadata && d.metadata.region_match === false && d.bb_species)
-      ? "boundarybirds"
+    hasDecider ? "decider"
+      : (d.metadata && d.metadata.region_match === false && d.bb_species) ? "boundarybirds"
       : (_bnConfRaw >= _bbConfRaw ? "birdnet" : "boundarybirds")
   );
   // v6.1: customLabel holds user-typed species when selectedSource === "custom".
@@ -1194,6 +1206,9 @@ function DetectionCard({ d, expanded, onToggle, onDismiss, onRestore, mode,
   const getTopPrediction = () => {
     if (selectedSource === "custom") {
       return { species: customLabel, conf: null, source: "neither" };
+    }
+    if (selectedSource === "decider") {
+      return { species: canonicaliseSpeciesLabel(d.decider_species), conf: _decConfRaw, source: "decider" };
     }
     if (selectedSource === "birdnet") {
       return { species: d.species_guess, conf: _bnConfRaw, source: "birdnet" };
@@ -1535,6 +1550,50 @@ function DetectionCard({ d, expanded, onToggle, onDismiss, onRestore, mode,
           justifyContent: "space-between", gap: 12 }}>
         <div style={{ flex: 1, minWidth: 0 }}>
           {useSwapUI ? (
+            hasDecider ? (
+            (() => {
+            const decS = canonicaliseSpeciesLabel(d.decider_species);
+            const decP = Math.round((_decConfRaw||0)*100);
+            const bnS = d.species_guess, bbS = canonicaliseSpeciesLabel(d.bb_species);
+            const bnP = Math.round((_bnConfRaw||0)*100), bbP = Math.round((_bbConfRaw||0)*100);
+            const dlc = String(decS||"").toLowerCase();
+            const mBN = !!dlc && dlc === String(canonicaliseSpeciesLabel(d.species_guess)||"").toLowerCase();
+            const mBB = !!dlc && dlc === String(bbS||"").toLowerCase();
+            const sD = selectedSource==="decider", sB=selectedSource==="birdnet", sX=selectedSource==="boundarybirds";
+            const evN = (typeof d.decider_evidence_n==="number") ? d.decider_evidence_n : null;
+            const box = (a,lab,sp,p,pick,fn) => (
+              <button onClick={(e)=>{e.stopPropagation();fn();}} aria-label={"Select "+lab+": "+sp} title={"Select "+lab+": "+sp}
+                style={{flex:1,minWidth:0,textAlign:"left",padding:"6px 8px",background:a?"rgba(31,107,58,0.10)":"var(--surface-2)",border:a?"2px solid var(--success)":"1px solid var(--border)",borderRadius:"var(--r-sm)",cursor:"pointer",fontFamily:"inherit",display:"flex",flexDirection:"column",gap:2}}>
+                <span style={{display:"flex",alignItems:"center",gap:4}}>
+                  <span style={{fontSize:9,fontWeight:700,color:"var(--text-3)",letterSpacing:0.5}}>{lab}</span>
+                  {pick && (<span style={{fontSize:8,fontWeight:700,color:"var(--success)",letterSpacing:0.3}}>= DEC</span>)}
+                  <span style={{marginLeft:"auto",fontSize:10,color:"var(--text-3)"}}>{p}%</span>
+                </span>
+                <span style={{fontSize:13,color:"var(--text-2)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{sp}</span>
+              </button>
+            );
+            return (
+              <div>
+                <button onClick={(e)=>{e.stopPropagation();setSelectedSource("decider");}} aria-label={"Select decider verdict: "+decS} title={"Decider best guess: "+decS}
+                  style={{width:"100%",textAlign:"left",padding:"10px 12px",background:sD?"rgba(31,107,58,0.12)":"var(--surface-2)",border:sD?"2px solid var(--success)":"1px solid var(--border)",borderRadius:"var(--r-sm)",marginBottom:6,cursor:"pointer",fontFamily:"inherit"}}>
+                  <div style={{display:"flex",alignItems:"center",gap:6}}>
+                    {isPriorityCls && (<span style={{color:"var(--accent)"}}>★</span>)}
+                    {isSuspectCls && !isPriorityCls && (<span style={{color:"#ca8a04"}}>⚠</span>)}
+                    <span style={{fontSize:10,fontWeight:700,color:"var(--success)",letterSpacing:0.5}}>DECIDER</span>
+                    <span style={{fontSize:9,fontWeight:600,color:"var(--text-3)",background:"var(--surface)",border:"1px solid var(--border)",borderRadius:999,padding:"1px 6px"}}>{deciderReasonBadge}</span>
+                    <span style={{marginLeft:"auto",fontSize:11,color:"var(--text-3)",fontWeight:600}}>{decP}%</span>
+                  </div>
+                  <div style={{fontSize:17,fontWeight:600,color:"var(--text)",lineHeight:1.25,marginTop:2}}>{decS}</div>
+                  <div style={{fontSize:10,color:"var(--text-3)",marginTop:3}}>decider · {deciderReasonBadge}{evN!==null?" · n="+evN:""}</div>
+                </button>
+                <div style={{display:"flex",gap:6}}>
+                  {box(sB,"BirdNET",bnS,bnP,mBN,()=>setSelectedSource("birdnet"))}
+                  {box(sX,"BoundaryBirds",bbS,bbP,mBB,()=>setSelectedSource("boundarybirds"))}
+                </div>
+              </div>
+            );
+            })()
+            ) : (
             (() => {
               const top = getTopPrediction();
               const bot = getBottomPrediction();
@@ -1608,6 +1667,7 @@ function DetectionCard({ d, expanded, onToggle, onDismiss, onRestore, mode,
                 </div>
               );
             })()
+            )
           ) : (
             <div style={{ fontSize: 17, fontWeight: 600, color: "var(--text)",
                 lineHeight: 1.25 }}>
@@ -3601,6 +3661,7 @@ function App() {
                                 expanded={expandedId === d.id}
                                 onToggle={() => setExpandedId(expandedId === d.id ? null : d.id)}
                                 onConfirm={setConfirmed}
+                                onSetSwapVerdict={setSwapVerdict}
                                 onReview={setReviewed}
                                 onDiscard={setDiscarded}
                                 mode="history"
