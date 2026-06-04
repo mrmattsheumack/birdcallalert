@@ -113,8 +113,8 @@ const PI_AUDIO_BASE = "https://eaglecam.taile03fa1.ts.net:8443";
 // ─── App version ────────────────────────────────────────────────────
 // Bump on every deploy. Visible in the footer so we know which build is
 // running when investigating bug reports or screenshots.
-const APP_VERSION = "v7.0";
-const APP_VERSION_DATE = "2026-06-03";
+const APP_VERSION = "v7.1";
+const APP_VERSION_DATE = "2026-06-04";
 
 // ─── v5.8.0: Service Worker registration ──────────────────────────────
 // Registers /sw.js so registration.showNotification() works on Chrome
@@ -1574,6 +1574,16 @@ function DetectionCard({ d, expanded, onToggle, onDismiss, onRestore, mode,
             );
             return (
               <div>
+                {selectedSource==="custom" && (
+                  <button onClick={(e)=>{e.stopPropagation();setSelectedSource("custom");}} aria-label={"Your typed label: "+customLabel} title={"You typed: "+customLabel}
+                    style={{width:"100%",textAlign:"left",padding:"10px 12px",background:"rgba(31,107,58,0.12)",border:"2px solid var(--success)",borderRadius:"var(--r-sm)",marginBottom:6,cursor:"pointer",fontFamily:"inherit"}}>
+                    <div style={{display:"flex",alignItems:"center",gap:6}}>
+                      <span style={{fontSize:10,fontWeight:700,color:"var(--success)",letterSpacing:0.5}}>YOU TYPED</span>
+                      <span style={{marginLeft:"auto",fontSize:11,color:"var(--text-3)",fontWeight:600}}>tap tick to save</span>
+                    </div>
+                    <div style={{fontSize:17,fontWeight:600,color:"var(--text)",lineHeight:1.25,marginTop:2}}>{customLabel}</div>
+                  </button>
+                )}
                 <button onClick={(e)=>{e.stopPropagation();setSelectedSource("decider");}} aria-label={"Select decider verdict: "+decS} title={"Decider best guess: "+decS}
                   style={{width:"100%",textAlign:"left",padding:"10px 12px",background:sD?"rgba(31,107,58,0.12)":"var(--surface-2)",border:sD?"2px solid var(--success)":"1px solid var(--border)",borderRadius:"var(--r-sm)",marginBottom:6,cursor:"pointer",fontFamily:"inherit"}}>
                   <div style={{display:"flex",alignItems:"center",gap:6}}>
