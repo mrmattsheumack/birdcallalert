@@ -392,34 +392,36 @@ function birdLabel(d) {
   return d.species_guess || "Unknown";
 }
 
-// True if a detection should be flagged as priority. Priority is computed
-// client-side from the user's classifications object (in App state, persisted
-// to localStorage) rather than read from a server-set flag.
-function isPriority(d, classifications) {
-  // v6.16: check BOTH BirdNET and BB predictions. If user marked a species
-  // priority, EITHER model naming it triggers priority (alerts, star badge,
-  // push notifications). isMuted/isSuspect remain BN-only by design.
-  const bnLabel = canonicaliseSpeciesLabel(d.species_guess) || birdLabel(d);
-  if (getClassification(bnLabel, classifications) === "priority") return true;
-  if (d.bb_species) {
-    const bbLabel = canonicaliseSpeciesLabel(d.bb_species);
-    if (bbLabel && getClassification(bbLabel, classifications) === "priority") return true;
+// v6.18: classification species for a detection. Trust the decider's
+// blended verdict (decider_species) whenever it exists - including its
+// default-bn picks - and fall back to canonicalised BirdNET only on a
+// true decline (blank decider_species). Routes mute/priority/suspect off
+// the ensemble instead of the individual engines.
+function classificationSpecies(d) {
+  if (d && d.decider_species) {
+    const c = canonicaliseSpeciesLabel(d.decider_species);
+    if (c) return c;
   }
-  return false;
+  return canonicaliseSpeciesLabel(d.species_guess) || birdLabel(d);
+}
+
+// True if a detection should be flagged as priority. v6.18: keyed off the
+// decider's species (which already blends BirdNET + BB), replacing the
+// earlier dual BN/BB check.
+function isPriority(d, classifications) {
+  return getClassification(classificationSpecies(d), classifications) === "priority";
 }
 
 // True if a detection's species is currently muted by the user.
 function isMuted(d, classifications) {
-  // v6.13: match Settings list key (canonical species_guess) for lookup consistency
-  const label = canonicaliseSpeciesLabel(d.species_guess) || birdLabel(d);
-  return getClassification(label, classifications) === "muted";
+  // v6.18: keyed off the decider's species (classificationSpecies)
+  return getClassification(classificationSpecies(d), classifications) === "muted";
 }
 
 // True if user has marked this species as suspect.
 function isSuspect(d, classifications) {
-  // v6.13: match Settings list key (canonical species_guess) for lookup consistency
-  const label = canonicaliseSpeciesLabel(d.species_guess) || birdLabel(d);
-  return getClassification(label, classifications) === "suspect";
+  // v6.18: keyed off the decider's species (classificationSpecies)
+  return getClassification(classificationSpecies(d), classifications) === "suspect";
 }
 
 // True if the user has manually relabelled this detection AND the new label
