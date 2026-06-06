@@ -358,8 +358,49 @@ function seedClassifications() {
   localStorage.setItem(LS.classificationsSeeded, "1");
   return obj;
 }
+const CLASSIFICATION_RANK = { normal: 0, priority: 1, suspect: 2, muted: 3 };
+// v6.19: canonical key for a classification entry. Strips any legacy
+// "Common_Scientific" suffix, then runs the full display canonicaliser
+// (which also collapses sub-species). One species => one key.
+function classificationKey(label) {
+  if (!label) return label;
+  const common = String(label).split("_")[0];
+  return canonicaliseSpeciesLabel(common) || common;
+}
+// v6.19: one-time migration. Canonicalise every saved key and merge
+// duplicates that collapse to the same species, keeping the strongest
+// intent (muted > suspect > priority). Drops stored "normal" entries.
+function migrateClassificationKeys(obj) {
+  if (!obj || typeof obj !== "object") return obj;
+  const out = {};
+  let changed = false;
+  for (const [k, v] of Object.entries(obj)) {
+    if (!v || v === "normal") { changed = true; continue; }
+    const ck = classificationKey(k);
+    if (ck !== k) changed = true;
+    const cur = out[ck];
+    if (!cur || (CLASSIFICATION_RANK[v] || 0) > (CLASSIFICATION_RANK[cur] || 0)) {
+      if (cur && cur !== v) changed = true;
+      out[ck] = v;
+    } else {
+      changed = true;
+    }
+  }
+  if (changed) { try { saveClassifications(out); } catch (e) {} }
+  return out;
+}
+// v6.19: resolve a classification by canonical key so any stored form
+// (slug, Title Case, or legacy "_Scientific") is found. Exact hit first
+// for speed, then canonical match.
 function getClassification(label, classifications) {
-  return classifications[label] || "normal";
+  if (!classifications) return "normal";
+  if (classifications[label]) return classifications[label];
+  const ck = classificationKey(label);
+  if (classifications[ck]) return classifications[ck];
+  for (const k in classifications) {
+    if (classificationKey(k) === ck) return classifications[k];
+  }
+  return "normal";
 }
 
 // Sync the muted species list to Supabase pi_config table so the Pi
@@ -408,20 +449,33 @@ function classificationSpecies(d) {
 // True if a detection should be flagged as priority. v6.18: keyed off the
 // decider's species (which already blends BirdNET + BB), replacing the
 // earlier dual BN/BB check.
+// v6.19: collect every species named for this clip (decider, BirdNET, BB),
+// canonicalised + de-duped. Muting is CONSERVATIVE (hide only if ALL named
+// species are muted) so a rare bird BirdNET flags is never hidden just
+// because the decider sided with BB. Priority/suspect are PERMISSIVE
+// (flag if ANY named species matches).
+function namedSpecies(d) {
+  const out = [];
+  const add = (raw) => { const c = canonicaliseSpeciesLabel(raw); if (c && !out.includes(c)) out.push(c); };
+  if (d) {
+    if (d.decider_species) add(d.decider_species);
+    if (d.species_guess)   add(d.species_guess);
+    if (d.bb_species)      add(d.bb_species);
+  }
+  if (out.length === 0) { const b = birdLabel(d); if (b) out.push(b); }
+  return out;
+}
 function isPriority(d, classifications) {
-  return getClassification(classificationSpecies(d), classifications) === "priority";
+  return namedSpecies(d).some(s => getClassification(s, classifications) === "priority");
 }
-
-// True if a detection's species is currently muted by the user.
+// Conservative mute: suppress only when EVERY named species is muted.
 function isMuted(d, classifications) {
-  // v6.18: keyed off the decider's species (classificationSpecies)
-  return getClassification(classificationSpecies(d), classifications) === "muted";
+  const names = namedSpecies(d);
+  if (names.length === 0) return false;
+  return names.every(s => getClassification(s, classifications) === "muted");
 }
-
-// True if user has marked this species as suspect.
 function isSuspect(d, classifications) {
-  // v6.18: keyed off the decider's species (classificationSpecies)
-  return getClassification(classificationSpecies(d), classifications) === "suspect";
+  return namedSpecies(d).some(s => getClassification(s, classifications) === "suspect");
 }
 
 // True if the user has manually relabelled this detection AND the new label
@@ -693,12 +747,17 @@ function SettingsSheet({ open, onClose, viewFilter, setViewFilter, notifMode, se
   if (!open) return null;
 
   function setSpeciesClassification(label, state) {
+    const key = classificationKey(label);  // v6.19: write under one canonical key
     setClassifications(prev => {
       const next = { ...prev };
+      // v6.19: drop any stale forms that collapse to the same species
+      for (const k of Object.keys(next)) {
+        if (k !== key && classificationKey(k) === key) delete next[k];
+      }
       if (state === "normal") {
-        delete next[label];  // normal = absence of explicit classification
+        delete next[key];  // normal = absence of explicit classification
       } else {
-        next[label] = state;
+        next[key] = state;
       }
       return next;
     });
@@ -886,7 +945,7 @@ function SettingsSheet({ open, onClose, viewFilter, setViewFilter, notifMode, se
             {(() => {
               const counts = { priority: 0, suspect: 0, muted: 0, normal: 0 };
               for (const s of allSeenSpecies) {
-                const c = classifications[s.label] || "normal";
+                const c = getClassification(s.label, classifications);
                 counts[c] = (counts[c] || 0) + 1;
               }
               return (
@@ -914,7 +973,7 @@ function SettingsSheet({ open, onClose, viewFilter, setViewFilter, notifMode, se
                   borderRadius: "var(--r-md)", overflow: "hidden" }}>
                 {/* v6.6: A-Z sort by displayed common name */}
                 {allSeenSpecies.slice().sort((a, b) => (a.common || a.label || '').localeCompare(b.common || b.label || '', undefined, {sensitivity: 'base'})).map((s, i) => {
-                  const cls = classifications[s.label] || "normal";
+                  const cls = getClassification(s.label, classifications);
                   const cfg = CLASSIFICATIONS[cls];
                   const order = ["normal", "priority", "suspect", "muted"];
                   const next = order[(order.indexOf(cls) + 1) % order.length];
@@ -2134,6 +2193,8 @@ function App() {
     let c = loadClassifications();
     if (c === null) {
       c = seedClassifications();
+    } else {
+      c = migrateClassificationKeys(c);  // v6.19: one-time canonical de-dupe
     }
     return c;
   });
@@ -2746,11 +2807,13 @@ function App() {
     // ("Common Name_Scientific") and canonical keys ("Common Name") are
     // both handled. count=0 + latestTs=0 so they sort to the bottom.
     for (const [clsKey, clsState] of Object.entries(classifications || {})) {
-      if (clsState === "normal" || m.has(clsKey)) continue;
+      if (clsState === "normal") continue;
+      const ck = classificationKey(clsKey);   // v6.19: fold to canonical
+      if (m.has(ck)) continue;                 // detection row already exists
       const parts = String(clsKey).split("_");
-      m.set(clsKey, {
-        label: clsKey,
-        common: canonicaliseSpeciesLabel(parts[0]) || clsKey,
+      m.set(ck, {
+        label: ck,
+        common: canonicaliseSpeciesLabel(parts[0]) || ck,
         scientific: parts[1] || null,
         count: 0,
         latestTs: 0,
@@ -3396,7 +3459,7 @@ function App() {
                     mode="live"
                     classification={getClassification(birdLabel(d), classifications)}
                     onSetClassification={(label, state) => {
-                      setClassifications(prev => ({ ...prev, [label]: state }));
+                      setClassifications(prev => ({ ...prev, [classificationKey(label)]: state }));
                     }}
                     onSetManualLabel={setManualLabel}
                     corpusCount={corpusCountFor(d)}
