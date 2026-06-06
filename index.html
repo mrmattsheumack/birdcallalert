@@ -113,7 +113,7 @@ const PI_AUDIO_BASE = "https://eaglecam.taile03fa1.ts.net:8443";
 // ─── App version ────────────────────────────────────────────────────
 // Bump on every deploy. Visible in the footer so we know which build is
 // running when investigating bug reports or screenshots.
-const APP_VERSION = "v6.19";
+const APP_VERSION = "v6.19.1";
 const APP_VERSION_DATE = "2026-06-06";
 
 // ─── v5.8.0: Service Worker registration ──────────────────────────────
@@ -2357,15 +2357,16 @@ function App() {
         for (const newest of data) {
           if (newest.dismissed) continue;
           if (newest.id === lastNotifId.current) break;
-          const label = birdLabel(newest);
-          const cls = getClassification(label, cls_now);
-          // Muted and suspect species never notify (suspect = "I want to see
-          // it but don't ping me about it")
-          if (cls === "muted" || cls === "suspect") continue;
+          // v6.19.1: notify gating via the valve. Suppress only when the
+          // whole card is muted (every named species muted); suppress a
+          // suspect card unless it also names a priority bird (priority wins
+          // the ping).
+          if (isMuted(newest, cls_now)) continue;
+          if (isSuspect(newest, cls_now) && !isPriority(newest, cls_now)) continue;
           const ageMin = (Date.now() - new Date(newest.created_at).getTime()) / 60000;
           const passesMode =
             notifMode === "all" ||
-            (notifMode === "priority" && cls === "priority");
+            (notifMode === "priority" && isPriority(newest, cls_now));
           if (
             ageMin < 5 &&
             passesMode &&
@@ -2507,10 +2508,11 @@ function App() {
     const items = detections.filter(d => {
       if (d.dismissed) return false;
       if ((d.confidence || 0) < confThreshold) return false;
-      const label = birdLabel(d);
-      const cls = getClassification(label, classifications);
-      if (cls === "muted") return false;
-      if (viewFilter === "priority" && cls !== "priority") return false;
+      // v6.19.1: route hide + priority-filter through the named-species
+      // valve so a card naming a wanted bird stays visible even if another
+      // named species (e.g. BirdNET's guess) is muted.
+      if (isMuted(d, classifications)) return false;
+      if (viewFilter === "priority" && !isPriority(d, classifications)) return false;
       return true;
     });
     // v6.1: when sort is "asc" (oldest first), pure chronological - ignore
@@ -2519,12 +2521,14 @@ function App() {
     if (liveSortDir === "asc") {
       items.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
     } else {
-      const order = { priority: 0, suspect: 1, normal: 2 };
+      // v6.19.1: rank via the valve (priority if any named species is
+      // priority, else suspect if any is suspect, else normal) so grouping
+      // matches the new mute/priority semantics.
+      const rank = (d) => isPriority(d, classifications) ? 0
+                        : (isSuspect(d, classifications) ? 1 : 2);
       items.sort((a, b) => {
-        const ca = getClassification(birdLabel(a), classifications);
-        const cb = getClassification(birdLabel(b), classifications);
-        const oa = order[ca] ?? 2;
-        const ob = order[cb] ?? 2;
+        const oa = rank(a);
+        const ob = rank(b);
         if (oa !== ob) return oa - ob;
         return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
       });
