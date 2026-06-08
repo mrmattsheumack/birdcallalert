@@ -117,7 +117,7 @@ const PI_TRIM_TOKEN = "cP4ismz-p9IkFXxwoemPMXDAQ9AOXJav";
 // ─── App version ────────────────────────────────────────────────────
 // Bump on every deploy. Visible in the footer so we know which build is
 // running when investigating bug reports or screenshots.
-const APP_VERSION = "v6.22";
+const APP_VERSION = "v6.23";
 const APP_VERSION_DATE = "2026-06-06";
 
 // ─── v5.8.0: Service Worker registration ──────────────────────────────
@@ -1056,6 +1056,8 @@ function CorpusSheet({ open, onClose, corpusStats }) {
   const [cs_err, cs_setErr] = useState(null);
   const [cs_open, cs_setOpen] = useState(null);
   const [cs_clips, cs_setClips] = useState({});
+  const [cs_trim, cs_setTrim] = useState(null);
+  const [cs_busy, cs_setBusy] = useState(null);
   useEffect(() => {
     if (!open) return;
     cs_setErr(null); cs_setSpecies(null); cs_setOpen(null); cs_setClips({});
@@ -1073,6 +1075,27 @@ function CorpusSheet({ open, onClose, corpusStats }) {
       .then(r => r.json())
       .then(d => cs_setClips(p => ({ ...p, [slug]: { items: d.clips || [] } })))
       .catch(e => cs_setClips(p => ({ ...p, [slug]: { error: String(e) } })));
+  };
+  const cs_delete = (species, filename) => {
+    if (!window.confirm(`Delete this ${species} clip from the corpus? It moves to quarantine and is recoverable.`)) return;
+    cs_setBusy(filename);
+    fetch(`${PI_AUDIO_BASE}/corpus_delete`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ species, filename, token: PI_TRIM_TOKEN }),
+    })
+      .then(r => r.json().then(j => ({ ok: r.ok, j })))
+      .then(({ ok, j }) => {
+        if (!ok || (j && j.error)) { alert("Delete failed: " + ((j && j.error) || "unknown")); cs_setBusy(null); return; }
+        cs_setClips(p => {
+          const b = p[species];
+          if (!b || !b.items) return p;
+          return { ...p, [species]: { ...b, items: b.items.filter(x => x.filename !== filename) } };
+        });
+        cs_setSpecies(prev => prev ? prev.map(s => s.species === species ? { ...s, count: Math.max(0, s.count - 1) } : s) : prev);
+        cs_setBusy(null);
+      })
+      .catch(e => { alert("Delete failed: " + e); cs_setBusy(null); });
   };
   if (!open) return null;
   // v6.8: live model metadata. Update these when the production model
@@ -1131,8 +1154,8 @@ function CorpusSheet({ open, onClose, corpusStats }) {
           <div style={{
             fontSize: 13, color: "var(--text-2)", marginBottom: 12,
           }}>
-            {corpusStats
-              ? `${corpusStats.total} clips · ${corpusStats.entries.length} species`
+            {cs_species
+              ? `${cs_species.reduce((s, e) => s + e.count, 0)} clips · ${cs_species.length} species`
               : "loading…"}
           </div>
           <p style={{
@@ -1188,15 +1211,37 @@ function CorpusSheet({ open, onClose, corpusStats }) {
                         ) : bucket.items.length === 0 ? (
                           <div style={{ fontSize: 12, color: "var(--text-3)", padding: "6px 2px" }}>No clips.</div>
                         ) : (
-                          bucket.items.map(c => (
+                          bucket.items.map(c => {
+                            const _url = `${PI_AUDIO_BASE}/clips/${c.filename}`;
+                            const _trimming = cs_trim === c.filename;
+                            const _deleting = cs_busy === c.filename;
+                            return (
                             <div key={c.filename} style={{
                               display: "flex", flexDirection: "column", gap: 4,
                               padding: "8px 0", borderTop: "1px solid var(--border)",
                             }}>
                               <span style={{ fontSize: 11, color: "var(--text-2)", fontFamily: "monospace", wordBreak: "break-all" }}>{c.filename}</span>
-                              <audio controls preload="none" style={{ width: "100%", height: 34 }} src={`${PI_AUDIO_BASE}/clips/${c.filename}`} />
+                              <audio controls preload="none" style={{ width: "100%", height: 34 }} src={_url} />
+                              {!_trimming ? (
+                                <div style={{ display: "flex", gap: 8 }}>
+                                  <button onClick={() => cs_setTrim(c.filename)} style={{
+                                    padding: "5px 10px", borderRadius: "var(--r-sm)", border: "1px solid var(--border)",
+                                    background: "var(--surface-2)", color: "var(--text-2)", fontSize: 12, cursor: "pointer",
+                                  }}>\u2702 Trim</button>
+                                  <button disabled={_deleting} onClick={() => cs_delete(e.species, c.filename)} style={{
+                                    padding: "5px 10px", borderRadius: "var(--r-sm)", border: "1px solid #e0b4b4",
+                                    background: "#fbeaea", color: "#c0392b", fontSize: 12,
+                                    cursor: _deleting ? "default" : "pointer", opacity: _deleting ? 0.6 : 1,
+                                  }}>{_deleting ? "Deleting\u2026" : "\ud83d\uddd1 Delete"}</button>
+                                </div>
+                              ) : (
+                                <TrimEditor clipUrl={_url} clipFilename={c.filename}
+                                  onClose={() => cs_setTrim(null)}
+                                  onSaved={() => cs_setTrim(null)} />
+                              )}
                             </div>
-                          ))
+                            );
+                          })
                         )}
                       </div>
                     )}
