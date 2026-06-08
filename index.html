@@ -117,7 +117,7 @@ const PI_TRIM_TOKEN = "cP4ismz-p9IkFXxwoemPMXDAQ9AOXJav";
 // ─── App version ────────────────────────────────────────────────────
 // Bump on every deploy. Visible in the footer so we know which build is
 // running when investigating bug reports or screenshots.
-const APP_VERSION = "v6.21";
+const APP_VERSION = "v6.22";
 const APP_VERSION_DATE = "2026-06-06";
 
 // ─── v5.8.0: Service Worker registration ──────────────────────────────
@@ -1052,6 +1052,28 @@ function SettingsSheet({ open, onClose, viewFilter, setViewFilter, notifMode, se
 // (no inner collapsible). Shows a metadata header with live model
 // version/accuracy plus the species count list sorted A-Z.
 function CorpusSheet({ open, onClose, corpusStats }) {
+  const [cs_species, cs_setSpecies] = useState(null);
+  const [cs_err, cs_setErr] = useState(null);
+  const [cs_open, cs_setOpen] = useState(null);
+  const [cs_clips, cs_setClips] = useState({});
+  useEffect(() => {
+    if (!open) return;
+    cs_setErr(null); cs_setSpecies(null); cs_setOpen(null); cs_setClips({});
+    fetch(`${PI_AUDIO_BASE}/corpus/species`)
+      .then(r => r.json())
+      .then(d => cs_setSpecies((d.species || []).slice().sort((a, b) => b.count - a.count)))
+      .catch(e => cs_setErr(String(e)));
+  }, [open]);
+  const cs_loadClips = (slug) => {
+    if (cs_open === slug) { cs_setOpen(null); return; }
+    cs_setOpen(slug);
+    if (cs_clips[slug] && cs_clips[slug].items) return;
+    cs_setClips(p => ({ ...p, [slug]: { loading: true } }));
+    fetch(`${PI_AUDIO_BASE}/corpus/clips?species=${encodeURIComponent(slug)}`)
+      .then(r => r.json())
+      .then(d => cs_setClips(p => ({ ...p, [slug]: { items: d.clips || [] } })))
+      .catch(e => cs_setClips(p => ({ ...p, [slug]: { error: String(e) } })));
+  };
   if (!open) return null;
   // v6.8: live model metadata. Update these when the production model
   // is replaced on the Pi. Source of truth = boundarybirds_v0.* on Pi.
@@ -1121,41 +1143,63 @@ function CorpusSheet({ open, onClose, corpusStats }) {
             ● 100+ saturated, ● 80-99 ready, ◐ 50-79 sufficient,
             ◐ 15-49 building, no dot below 15.
           </p>
-          {(!corpusStats || corpusStats.entries.length === 0) ? (
+          {cs_err ? (
             <div style={{
-              padding: "20px 16px", fontSize: 14,
-              color: "var(--text-2)",
+              padding: "20px 16px", fontSize: 14, color: "#c0392b",
               background: "var(--surface)", border: "1px solid var(--border)",
               borderRadius: "var(--r-md)", textAlign: "center",
-            }}>
-              No clips contributed yet.
-            </div>
-          ) : (
+            }}>Could not load corpus from the Pi: {cs_err}</div>
+          ) : !cs_species ? (
             <div style={{
-              display: "flex", flexDirection: "column", gap: 4,
-            }}>
-              {/* v6.6: A-Z sort by displayed label */}
-              {corpusStats.entries.slice().sort((a, b) => (a.label || '').localeCompare(b.label || '', undefined, {sensitivity: 'base'})).map(e => {
-                // v5.7.5: 5-tier system via corpusTier helper
+              padding: "20px 16px", fontSize: 14, color: "var(--text-2)",
+              background: "var(--surface)", border: "1px solid var(--border)",
+              borderRadius: "var(--r-md)", textAlign: "center",
+            }}>Loading clips from disk…</div>
+          ) : cs_species.length === 0 ? (
+            <div style={{
+              padding: "20px 16px", fontSize: 14, color: "var(--text-2)",
+              background: "var(--surface)", border: "1px solid var(--border)",
+              borderRadius: "var(--r-md)", textAlign: "center",
+            }}>No clips on disk yet.</div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+              {cs_species.slice().sort((a, b) => (a.species || '').localeCompare(b.species || '', undefined, {sensitivity: 'base'})).map(e => {
                 const { dot, dotColor } = corpusTier(e.count);
+                const isOpen = cs_open === e.species;
+                const bucket = cs_clips[e.species];
                 return (
-                  <div key={e.label} style={{
-                    display: "flex", alignItems: "baseline",
-                    padding: "8px 4px",
-                    borderBottom: "1px solid var(--border)",
-                    gap: 8,
-                  }}>
-                    <span style={{
-                      color: dotColor, fontSize: 14,
-                      width: 14, textAlign: "center",
-                    }}>{dot}</span>
-                    <span style={{
-                      flex: 1, fontSize: 13, color: "var(--text)",
-                    }}>{e.label}</span>
-                    <span style={{
-                      fontSize: 12, color: "var(--text-2)",
-                      fontVariantNumeric: "tabular-nums",
-                    }}>{e.count}</span>
+                  <div key={e.species} style={{ borderBottom: "1px solid var(--border)" }}>
+                    <button onClick={() => cs_loadClips(e.species)} style={{
+                      width: "100%", display: "flex", alignItems: "center",
+                      gap: 8, padding: "10px 4px", background: "none",
+                      border: "none", cursor: "pointer", textAlign: "left",
+                    }}>
+                      <span style={{ color: dotColor, fontSize: 14, width: 14, textAlign: "center" }}>{dot}</span>
+                      <span style={{ flex: 1, fontSize: 14, color: "var(--text)" }}>{e.species}</span>
+                      <span style={{ fontSize: 12, color: "var(--text-2)", fontVariantNumeric: "tabular-nums" }}>{e.count}</span>
+                      <span style={{ fontSize: 12, color: "var(--text-3)", width: 16, textAlign: "center" }}>{isOpen ? "\u25be" : "\u25b8"}</span>
+                    </button>
+                    {isOpen && (
+                      <div style={{ padding: "0 4px 10px" }}>
+                        {(!bucket || bucket.loading) ? (
+                          <div style={{ fontSize: 12, color: "var(--text-3)", padding: "6px 2px" }}>Loading…</div>
+                        ) : bucket.error ? (
+                          <div style={{ fontSize: 12, color: "#c0392b", padding: "6px 2px" }}>Error: {bucket.error}</div>
+                        ) : bucket.items.length === 0 ? (
+                          <div style={{ fontSize: 12, color: "var(--text-3)", padding: "6px 2px" }}>No clips.</div>
+                        ) : (
+                          bucket.items.map(c => (
+                            <div key={c.filename} style={{
+                              display: "flex", flexDirection: "column", gap: 4,
+                              padding: "8px 0", borderTop: "1px solid var(--border)",
+                            }}>
+                              <span style={{ fontSize: 11, color: "var(--text-2)", fontFamily: "monospace", wordBreak: "break-all" }}>{c.filename}</span>
+                              <audio controls preload="none" style={{ width: "100%", height: 34 }} src={`${PI_AUDIO_BASE}/clips/${c.filename}`} />
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    )}
                   </div>
                 );
               })}
