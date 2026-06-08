@@ -114,11 +114,76 @@ const PI_AUDIO_BASE = "https://eaglecam.taile03fa1.ts.net:8443";
 // stray/accidental writes, not to defend a tailnet-joined attacker.
 const PI_TRIM_TOKEN = "cP4ismz-p9IkFXxwoemPMXDAQ9AOXJav";
 
+// ─── History "Corpus" view: lists every on-disk training clip for one species,
+//      straight from the Pi, with Trim + Delete (delete -> quarantine, reversible).
+function HistoryCorpusList({ species, label }) {
+  const [clips, setClips] = useState(null);
+  const [err, setErr] = useState(null);
+  const [trim, setTrim] = useState(null);
+  const [busy, setBusy] = useState(null);
+  useEffect(() => {
+    let alive = true;
+    setClips(null); setErr(null); setTrim(null); setBusy(null);
+    fetch(`${PI_AUDIO_BASE}/corpus/clips?species=${encodeURIComponent(species)}`)
+      .then(r => r.json())
+      .then(j => { if (!alive) return; setClips(Array.isArray(j) ? j : (j.clips || [])); })
+      .catch(e => { if (alive) setErr(String(e)); });
+    return () => { alive = false; };
+  }, [species]);
+  const del = (filename) => {
+    if (!window.confirm(`Delete this ${label} clip from the corpus? It moves to quarantine and is recoverable.`)) return;
+    setBusy(filename);
+    fetch(`${PI_AUDIO_BASE}/corpus_delete`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ species, filename, token: PI_TRIM_TOKEN }),
+    })
+      .then(r => r.json().then(j => ({ ok: r.ok, j })))
+      .then(({ ok, j }) => {
+        if (!ok || (j && j.error)) { alert("Delete failed: " + ((j && j.error) || "unknown")); setBusy(null); return; }
+        setClips(p => (p || []).filter(c => c.filename !== filename));
+        setBusy(null);
+      })
+      .catch(e => { alert("Delete failed: " + e); setBusy(null); });
+  };
+  if (err) return (<div style={{ padding: "16px 6px", fontSize: 13, color: "var(--danger)", textAlign: "center" }}>Could not load corpus from the Pi: {err}</div>);
+  if (clips === null) return (<div style={{ padding: "16px 6px", fontSize: 13, color: "var(--text-3)", textAlign: "center" }}>Loading corpus clips…</div>);
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+      <div style={{ margin: "4px 0 0 0", padding: "10px 14px", background: "var(--surface)", border: "1px solid var(--border)", borderRadius: "var(--r-md)", fontSize: 13, display: "flex", alignItems: "baseline", gap: 8 }}>
+        <strong style={{ fontSize: 14 }}>{label}</strong>
+        <span style={{ color: "var(--text-2)", fontSize: 12 }}>{clips.length} clip{clips.length === 1 ? "" : "s"} in corpus</span>
+      </div>
+      {clips.length === 0 ? (
+        <div style={{ padding: "16px 6px", fontSize: 13, color: "var(--text-3)", textAlign: "center" }}>No clips in the corpus for this species.</div>
+      ) : clips.map(c => {
+        const url = `${PI_AUDIO_BASE}/clips/${c.filename}`;
+        const isTrim = trim === c.filename;
+        const isDel = busy === c.filename;
+        return (
+          <div key={c.filename} style={{ display: "flex", flexDirection: "column", gap: 4, padding: "8px 4px", borderBottom: "1px solid var(--border)" }}>
+            <span style={{ fontSize: 11, color: "var(--text-2)", fontFamily: "monospace", wordBreak: "break-all" }}>{c.filename}</span>
+            <audio controls preload="none" style={{ width: "100%", height: 34 }} src={url} />
+            {!isTrim ? (
+              <div style={{ display: "flex", gap: 8 }}>
+                <button onClick={() => setTrim(c.filename)} style={{ padding: "5px 10px", borderRadius: "var(--r-sm)", border: "1px solid var(--border)", background: "var(--surface-2)", color: "var(--text-2)", fontSize: 12, cursor: "pointer" }}>\u2702 Trim</button>
+                <button disabled={isDel} onClick={() => del(c.filename)} style={{ padding: "5px 10px", borderRadius: "var(--r-sm)", border: "1px solid #e0b4b4", background: "#fbeaea", color: "#c0392b", fontSize: 12, cursor: isDel ? "default" : "pointer", opacity: isDel ? 0.6 : 1 }}>{isDel ? "Deleting\u2026" : "\ud83d\uddd1 Delete"}</button>
+              </div>
+            ) : (
+              <TrimEditor clipUrl={url} clipFilename={c.filename} onClose={() => setTrim(null)} onSaved={() => setTrim(null)} />
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 // ─── App version ────────────────────────────────────────────────────
 // Bump on every deploy. Visible in the footer so we know which build is
 // running when investigating bug reports or screenshots.
-const APP_VERSION = "v6.23";
-const APP_VERSION_DATE = "2026-06-06";
+const APP_VERSION = "v6.24";
+const APP_VERSION_DATE = "2026-06-08";
 
 // ─── v5.8.0: Service Worker registration ──────────────────────────────
 // Registers /sw.js so registration.showNotification() works on Chrome
@@ -1052,51 +1117,6 @@ function SettingsSheet({ open, onClose, viewFilter, setViewFilter, notifMode, se
 // (no inner collapsible). Shows a metadata header with live model
 // version/accuracy plus the species count list sorted A-Z.
 function CorpusSheet({ open, onClose, corpusStats }) {
-  const [cs_species, cs_setSpecies] = useState(null);
-  const [cs_err, cs_setErr] = useState(null);
-  const [cs_open, cs_setOpen] = useState(null);
-  const [cs_clips, cs_setClips] = useState({});
-  const [cs_trim, cs_setTrim] = useState(null);
-  const [cs_busy, cs_setBusy] = useState(null);
-  useEffect(() => {
-    if (!open) return;
-    cs_setErr(null); cs_setSpecies(null); cs_setOpen(null); cs_setClips({});
-    fetch(`${PI_AUDIO_BASE}/corpus/species`)
-      .then(r => r.json())
-      .then(d => cs_setSpecies((d.species || []).slice().sort((a, b) => b.count - a.count)))
-      .catch(e => cs_setErr(String(e)));
-  }, [open]);
-  const cs_loadClips = (slug) => {
-    if (cs_open === slug) { cs_setOpen(null); return; }
-    cs_setOpen(slug);
-    if (cs_clips[slug] && cs_clips[slug].items) return;
-    cs_setClips(p => ({ ...p, [slug]: { loading: true } }));
-    fetch(`${PI_AUDIO_BASE}/corpus/clips?species=${encodeURIComponent(slug)}`)
-      .then(r => r.json())
-      .then(d => cs_setClips(p => ({ ...p, [slug]: { items: d.clips || [] } })))
-      .catch(e => cs_setClips(p => ({ ...p, [slug]: { error: String(e) } })));
-  };
-  const cs_delete = (species, filename) => {
-    if (!window.confirm(`Delete this ${species} clip from the corpus? It moves to quarantine and is recoverable.`)) return;
-    cs_setBusy(filename);
-    fetch(`${PI_AUDIO_BASE}/corpus_delete`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ species, filename, token: PI_TRIM_TOKEN }),
-    })
-      .then(r => r.json().then(j => ({ ok: r.ok, j })))
-      .then(({ ok, j }) => {
-        if (!ok || (j && j.error)) { alert("Delete failed: " + ((j && j.error) || "unknown")); cs_setBusy(null); return; }
-        cs_setClips(p => {
-          const b = p[species];
-          if (!b || !b.items) return p;
-          return { ...p, [species]: { ...b, items: b.items.filter(x => x.filename !== filename) } };
-        });
-        cs_setSpecies(prev => prev ? prev.map(s => s.species === species ? { ...s, count: Math.max(0, s.count - 1) } : s) : prev);
-        cs_setBusy(null);
-      })
-      .catch(e => { alert("Delete failed: " + e); cs_setBusy(null); });
-  };
   if (!open) return null;
   // v6.8: live model metadata. Update these when the production model
   // is replaced on the Pi. Source of truth = boundarybirds_v0.* on Pi.
@@ -1154,8 +1174,8 @@ function CorpusSheet({ open, onClose, corpusStats }) {
           <div style={{
             fontSize: 13, color: "var(--text-2)", marginBottom: 12,
           }}>
-            {cs_species
-              ? `${cs_species.reduce((s, e) => s + e.count, 0)} clips · ${cs_species.length} species`
+            {corpusStats
+              ? `${corpusStats.total} clips · ${corpusStats.entries.length} species`
               : "loading…"}
           </div>
           <p style={{
@@ -1166,85 +1186,41 @@ function CorpusSheet({ open, onClose, corpusStats }) {
             ● 100+ saturated, ● 80-99 ready, ◐ 50-79 sufficient,
             ◐ 15-49 building, no dot below 15.
           </p>
-          {cs_err ? (
+          {(!corpusStats || corpusStats.entries.length === 0) ? (
             <div style={{
-              padding: "20px 16px", fontSize: 14, color: "#c0392b",
+              padding: "20px 16px", fontSize: 14,
+              color: "var(--text-2)",
               background: "var(--surface)", border: "1px solid var(--border)",
               borderRadius: "var(--r-md)", textAlign: "center",
-            }}>Could not load corpus from the Pi: {cs_err}</div>
-          ) : !cs_species ? (
-            <div style={{
-              padding: "20px 16px", fontSize: 14, color: "var(--text-2)",
-              background: "var(--surface)", border: "1px solid var(--border)",
-              borderRadius: "var(--r-md)", textAlign: "center",
-            }}>Loading clips from disk…</div>
-          ) : cs_species.length === 0 ? (
-            <div style={{
-              padding: "20px 16px", fontSize: 14, color: "var(--text-2)",
-              background: "var(--surface)", border: "1px solid var(--border)",
-              borderRadius: "var(--r-md)", textAlign: "center",
-            }}>No clips on disk yet.</div>
+            }}>
+              No clips contributed yet.
+            </div>
           ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-              {cs_species.slice().sort((a, b) => (a.species || '').localeCompare(b.species || '', undefined, {sensitivity: 'base'})).map(e => {
+            <div style={{
+              display: "flex", flexDirection: "column", gap: 4,
+            }}>
+              {/* v6.6: A-Z sort by displayed label */}
+              {corpusStats.entries.slice().sort((a, b) => (a.label || '').localeCompare(b.label || '', undefined, {sensitivity: 'base'})).map(e => {
+                // v5.7.5: 5-tier system via corpusTier helper
                 const { dot, dotColor } = corpusTier(e.count);
-                const isOpen = cs_open === e.species;
-                const bucket = cs_clips[e.species];
                 return (
-                  <div key={e.species} style={{ borderBottom: "1px solid var(--border)" }}>
-                    <button onClick={() => cs_loadClips(e.species)} style={{
-                      width: "100%", display: "flex", alignItems: "center",
-                      gap: 8, padding: "10px 4px", background: "none",
-                      border: "none", cursor: "pointer", textAlign: "left",
-                    }}>
-                      <span style={{ color: dotColor, fontSize: 14, width: 14, textAlign: "center" }}>{dot}</span>
-                      <span style={{ flex: 1, fontSize: 14, color: "var(--text)" }}>{e.species}</span>
-                      <span style={{ fontSize: 12, color: "var(--text-2)", fontVariantNumeric: "tabular-nums" }}>{e.count}</span>
-                      <span style={{ fontSize: 12, color: "var(--text-3)", width: 16, textAlign: "center" }}>{isOpen ? "\u25be" : "\u25b8"}</span>
-                    </button>
-                    {isOpen && (
-                      <div style={{ padding: "0 4px 10px" }}>
-                        {(!bucket || bucket.loading) ? (
-                          <div style={{ fontSize: 12, color: "var(--text-3)", padding: "6px 2px" }}>Loading…</div>
-                        ) : bucket.error ? (
-                          <div style={{ fontSize: 12, color: "#c0392b", padding: "6px 2px" }}>Error: {bucket.error}</div>
-                        ) : bucket.items.length === 0 ? (
-                          <div style={{ fontSize: 12, color: "var(--text-3)", padding: "6px 2px" }}>No clips.</div>
-                        ) : (
-                          bucket.items.map(c => {
-                            const _url = `${PI_AUDIO_BASE}/clips/${c.filename}`;
-                            const _trimming = cs_trim === c.filename;
-                            const _deleting = cs_busy === c.filename;
-                            return (
-                            <div key={c.filename} style={{
-                              display: "flex", flexDirection: "column", gap: 4,
-                              padding: "8px 0", borderTop: "1px solid var(--border)",
-                            }}>
-                              <span style={{ fontSize: 11, color: "var(--text-2)", fontFamily: "monospace", wordBreak: "break-all" }}>{c.filename}</span>
-                              <audio controls preload="none" style={{ width: "100%", height: 34 }} src={_url} />
-                              {!_trimming ? (
-                                <div style={{ display: "flex", gap: 8 }}>
-                                  <button onClick={() => cs_setTrim(c.filename)} style={{
-                                    padding: "5px 10px", borderRadius: "var(--r-sm)", border: "1px solid var(--border)",
-                                    background: "var(--surface-2)", color: "var(--text-2)", fontSize: 12, cursor: "pointer",
-                                  }}>\u2702 Trim</button>
-                                  <button disabled={_deleting} onClick={() => cs_delete(e.species, c.filename)} style={{
-                                    padding: "5px 10px", borderRadius: "var(--r-sm)", border: "1px solid #e0b4b4",
-                                    background: "#fbeaea", color: "#c0392b", fontSize: 12,
-                                    cursor: _deleting ? "default" : "pointer", opacity: _deleting ? 0.6 : 1,
-                                  }}>{_deleting ? "Deleting\u2026" : "\ud83d\uddd1 Delete"}</button>
-                                </div>
-                              ) : (
-                                <TrimEditor clipUrl={_url} clipFilename={c.filename}
-                                  onClose={() => cs_setTrim(null)}
-                                  onSaved={() => cs_setTrim(null)} />
-                              )}
-                            </div>
-                            );
-                          })
-                        )}
-                      </div>
-                    )}
+                  <div key={e.label} style={{
+                    display: "flex", alignItems: "baseline",
+                    padding: "8px 4px",
+                    borderBottom: "1px solid var(--border)",
+                    gap: 8,
+                  }}>
+                    <span style={{
+                      color: dotColor, fontSize: 14,
+                      width: 14, textAlign: "center",
+                    }}>{dot}</span>
+                    <span style={{
+                      flex: 1, fontSize: 13, color: "var(--text)",
+                    }}>{e.label}</span>
+                    <span style={{
+                      fontSize: 12, color: "var(--text-2)",
+                      fontVariantNumeric: "tabular-nums",
+                    }}>{e.count}</span>
                   </div>
                 );
               })}
@@ -2639,8 +2615,10 @@ function App() {
   //   - "reviewed": show only cards you marked reviewed/skipped (grey ·)
   //
   // Persisted in localStorage so it survives across sessions.
-  const [historyStatusFilter, setHistoryStatusFilter] = useState(() =>
-    lsGet(LS.historyStatusFilter, "all"));
+  const [historyStatusFilter, setHistoryStatusFilter] = useState(() => {
+    const _v = lsGet(LS.historyStatusFilter, "all");
+    return (_v === "confirmed" || _v === "corrected") ? "corpus" : _v;
+  });
   useEffect(() => {
     lsSet(LS.historyStatusFilter, historyStatusFilter);
   }, [historyStatusFilter]);
@@ -3886,8 +3864,7 @@ function App() {
               {[
                 { key: "all",         label: "All",         color: "var(--primary)" },
                 { key: "unaddressed", label: "Unaddressed", color: "var(--text-2)" },
-                { key: "confirmed",   label: "Confirmed",   color: "#1d4ed8" },
-                { key: "corrected",   label: "Corrected",   color: "var(--success)" },
+                { key: "corpus",      label: "Corpus",      color: "var(--success)" },
                 { key: "reviewed",    label: "Reviewed",    color: "var(--text-3)" },
               ].map(s => {
                 const active = historyStatusFilter === s.key;
@@ -3947,7 +3924,7 @@ function App() {
                 buckets (today + any expanded older buckets). Shows
                 under the dropdown so user knows at a glance how many
                 clips exist for the current filter. */}
-            {historySpeciesFilter !== "all" && (() => {
+            {historySpeciesFilter !== "all" && historyStatusFilter !== "corpus" && (() => {
               let n = 0;
               const matches = (d) => {
                 if (d.metadata && d.metadata.discarded === true) return false;
@@ -3979,10 +3956,17 @@ function App() {
               );
             })()}
 
+            {historyStatusFilter === "corpus" && (historySpeciesFilter === "all" ? (
+              <div style={{ padding: "16px 6px", fontSize: 13, color: "var(--text-3)", textAlign: "center" }}>
+                Pick a species above to see its corpus clips.
+              </div>
+            ) : (
+              <HistoryCorpusList species={historySpeciesFilter.toLowerCase().replace(/\s+/g, "-")} label={historySpeciesFilter} />
+            ))}
             {/* Bucket sections. Each renders as a collapsible header
                 showing the count, then (when expanded) the cards. */}
             <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 4 }}>
-              {HISTORY_BUCKET_ORDER.map(bucket => {
+              {(historyStatusFilter === "corpus" ? [] : HISTORY_BUCKET_ORDER).map(bucket => {
                 const isToday = bucket === "Today";
                 const expanded = !!expandedBuckets[bucket];
                 const entry = historyBuckets[bucket];
