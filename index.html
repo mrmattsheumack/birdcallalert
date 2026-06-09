@@ -192,7 +192,7 @@ function HistoryCorpusList({ species, label }) {
 // ─── App version ────────────────────────────────────────────────────
 // Bump on every deploy. Visible in the footer so we know which build is
 // running when investigating bug reports or screenshots.
-const APP_VERSION = "v6.29";
+const APP_VERSION = "v6.30";
 const APP_VERSION_DATE = "2026-06-08";
 
 // ─── v5.8.0: Service Worker registration ──────────────────────────────
@@ -2651,18 +2651,26 @@ function App() {
       // v5.7.4: extended live window from 24h to 48h to give the user
       // more time to review before clips drop into History.
       const cutoff = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
-      const r = await fetch(
-        `${SUPA_URL}/rest/v1/candidate_sightings?source=eq.bird_detection`
-          + `&created_at=gte.${encodeURIComponent(cutoff)}`
-          + `&order=created_at.desc&limit=500`,
-        { headers: SUPA_HEADERS }
-      );
-      if (!r.ok) {
-        setError(`Couldn't load detections (${r.status})`);
-        setLoading(false);
-        return;
+      // v6.30: paginate the live window so a busy 48h is never truncated.
+      // (Was a single limit=500 request, which silently dropped the older
+      // clips before their 48h was up on high-traffic days.)
+      const PAGE = 1000;
+      let data = [];
+      for (let _off = 0; _off < 20000; _off += PAGE) {
+        const r = await fetch(
+          `${SUPA_URL}/rest/v1/candidate_sightings?source=eq.bird_detection`
+            + `&created_at=gte.${encodeURIComponent(cutoff)}`
+            + `&order=created_at.desc&limit=${PAGE}&offset=${_off}`,
+          { headers: SUPA_HEADERS }
+        );
+        if (!r.ok) {
+          if (_off === 0) { setError(`Couldn't load detections (${r.status})`); setLoading(false); return; }
+          break; // keep the pages we already have rather than failing outright
+        }
+        const _page = await r.json();
+        data = data.concat(_page || []);
+        if (!_page || _page.length < PAGE) break;
       }
-      const data = await r.json();
       // reappear-fix: honour locally-pending dismissals. Prune expired
       // entries and any the server now agrees are dismissed.
       {
