@@ -173,7 +173,7 @@ function HistoryCorpusList({ species, label }) {
           <div key={c.filename} style={{ display: "flex", flexDirection: "column", gap: 4, padding: "8px 4px", borderBottom: "1px solid var(--border)" }}>
             <span style={{ fontSize: 11, color: "var(--text-2)", fontFamily: "monospace", wordBreak: "break-all" }}>{c.filename}</span>
             {stamp && <span style={{ fontSize: 11, color: "var(--text-3)" }}>{stamp}</span>}
-            <audio controls preload="none" style={{ width: "100%", height: 34 }} src={url} />
+            <audio key={url} controls preload="none" style={{ width: "100%", height: 34 }} src={url} />
             {!isTrim ? (
               <div style={{ display: "flex", gap: 8 }}>
                 <button onClick={() => setTrim(c.filename)} style={{ padding: "5px 10px", borderRadius: "var(--r-sm)", border: "1px solid var(--border)", background: "var(--surface-2)", color: "var(--text-2)", fontSize: 12, cursor: "pointer" }}>\u2702 Trim</button>
@@ -192,7 +192,7 @@ function HistoryCorpusList({ species, label }) {
 // ─── App version ────────────────────────────────────────────────────
 // Bump on every deploy. Visible in the footer so we know which build is
 // running when investigating bug reports or screenshots.
-const APP_VERSION = "v6.25";
+const APP_VERSION = "v6.26";
 const APP_VERSION_DATE = "2026-06-08";
 
 // ─── v5.8.0: Service Worker registration ──────────────────────────────
@@ -1293,32 +1293,19 @@ function _trimBuild(samples, selStart, selEnd, force) {
   let L = selEnd - selStart;
   if (L <= 0) return { ok:false, reason:"Empty selection" };
   if (L > TRIM_TOTAL) { const extra=L-TRIM_TOTAL; selStart+=Math.floor(extra/2); L=TRIM_TOTAL; selEnd=selStart+L; }
-  const out = new Int16Array(TRIM_TOTAL);
+  const out = new Int16Array(TRIM_TOTAL); // zero-filled => true digital silence in the padded regions
   if (L === TRIM_TOTAL) { for (let i=0;i<TRIM_TOTAL;i++) out[i]=samples[selStart+i]; return { ok:true, out, padded:0 }; }
-  const q = _trimFindQuietWindow(samples, Math.min(TRIM_AMBIENT_WIN, n));
-  if (q.rms > TRIM_QUIET_MAX_RMS && !force)
-    return { ok:false, canForce:true,
-             reason:"No quiet gap in this clip - padding will reuse the least-loud section (more of the same sound). Fine if that section is the bird; not fine if it is an obstruction (cars/voices).",
-             detail:{ quietRms:Math.round(q.rms), maxRms:TRIM_QUIET_MAX_RMS } };
-  const amb = samples.subarray(q.start, q.start + Math.min(TRIM_AMBIENT_WIN, n));
-  const m = amb.length;
-  const ambAt = (i) => { const cyc = Math.floor(i/m) % 2; const idx = cyc===0 ? (i%m) : (m-1-(i%m)); return amb[idx]; };
+  // v6.26: pad the cut regions with SILENCE (zeros), never reused in-clip audio.
+  // This stops an excluded sound (e.g. a myna at the start) from being tiled
+  // back across the clip. The kept selection is centred; everything else is silent.
   const padTotal = TRIM_TOTAL - L;
   const padLeft = Math.floor(padTotal/2), padRight = padTotal - padLeft;
   const clamp = (v) => v<-32768?-32768:(v>32767?32767:Math.round(v));
-  for (let i=0;i<padLeft;i++) out[i]=ambAt(i);
   for (let i=0;i<L;i++) out[padLeft+i]=samples[selStart+i];
-  for (let i=0;i<padRight;i++) out[padLeft+L+i]=ambAt(padLeft+L+i);
-  // left seam crossfade ambient->selection (only if there is left pad)
-  if (padLeft > 0) {
-    const f = Math.min(TRIM_FADE, L, padLeft);
-    for (let i=0;i<f;i++){ const t=i/(f-1||1); const pos=padLeft+i; out[pos]=clamp(ambAt(pos)*(1-t)+samples[selStart+i]*t); }
-  }
-  // right seam crossfade selection->ambient (only if there is right pad)
-  if (padRight > 0) {
-    const f = Math.min(TRIM_FADE, L, padRight);
-    for (let i=0;i<f;i++){ const t=i/(f-1||1); const pos=padLeft+L-f+i; out[pos]=clamp(samples[selStart+(L-f+i)]*(1-t)+ambAt(pos)*t); }
-  }
+  // Fade the selection in from silence and out to silence so the seams have no click.
+  const f = Math.min(TRIM_FADE, L);
+  if (padLeft > 0) { for (let i=0;i<f;i++){ const t=i/(f-1||1); out[padLeft+i]=clamp(samples[selStart+i]*t); } }
+  if (padRight > 0) { for (let i=0;i<f;i++){ const t=i/(f-1||1); out[padLeft+L-f+i]=clamp(samples[selStart+(L-f+i)]*(1-t)); } }
   return { ok:true, out, padded:padTotal };
 }
 
@@ -1474,7 +1461,7 @@ function TrimEditor({ clipUrl, clipFilename, onClose, onSaved }) {
           </div>
           {err && <div style={{ fontSize:12, color:"#e06666", marginTop:6 }}>{err}</div>}
           <div style={{ fontSize:11, color:"var(--text-3)", marginTop:6 }}>
-            Drag the edges to keep just the call. Saved as a 5s 48kHz clip; the cut parts are replaced with this clip&#39;s own quiet background. Overwrites the clip on the Pi (a timestamped backup is kept).
+            Drag the edges to keep just the call. Saved as a 5s 48kHz clip; the cut parts are replaced with silence. Overwrites the clip on the Pi (a timestamped backup is kept).
           </div>
         </div>
       )}
