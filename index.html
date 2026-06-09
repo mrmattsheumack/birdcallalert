@@ -116,11 +116,18 @@ const PI_TRIM_TOKEN = "cP4ismz-p9IkFXxwoemPMXDAQ9AOXJav";
 
 // ─── History "Corpus" view: lists every on-disk training clip for one species,
 //      straight from the Pi, with Trim + Delete (delete -> quarantine, reversible).
+function _clipStamp(fn) {
+  const m = /^(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})(\d{2})/.exec(fn || "");
+  if (!m) return "";
+  const mon = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  return `${parseInt(m[3],10)} ${mon[parseInt(m[2],10)-1]} ${m[1]}, ${m[4]}:${m[5]}`;
+}
 function HistoryCorpusList({ species, label }) {
   const [clips, setClips] = useState(null);
   const [err, setErr] = useState(null);
   const [trim, setTrim] = useState(null);
   const [busy, setBusy] = useState(null);
+  const [trimmedAt, setTrimmedAt] = useState({});
   useEffect(() => {
     let alive = true;
     setClips(null); setErr(null); setTrim(null); setBusy(null);
@@ -157,12 +164,15 @@ function HistoryCorpusList({ species, label }) {
       {clips.length === 0 ? (
         <div style={{ padding: "16px 6px", fontSize: 13, color: "var(--text-3)", textAlign: "center" }}>No clips in the corpus for this species.</div>
       ) : clips.map(c => {
-        const url = `${PI_AUDIO_BASE}/clips/${c.filename}`;
+        const _bust = trimmedAt[c.filename];
+        const url = `${PI_AUDIO_BASE}/clips/${c.filename}` + (_bust ? `?t=${_bust}` : "");
         const isTrim = trim === c.filename;
         const isDel = busy === c.filename;
+        const stamp = _clipStamp(c.filename);
         return (
           <div key={c.filename} style={{ display: "flex", flexDirection: "column", gap: 4, padding: "8px 4px", borderBottom: "1px solid var(--border)" }}>
             <span style={{ fontSize: 11, color: "var(--text-2)", fontFamily: "monospace", wordBreak: "break-all" }}>{c.filename}</span>
+            {stamp && <span style={{ fontSize: 11, color: "var(--text-3)" }}>{stamp}</span>}
             <audio controls preload="none" style={{ width: "100%", height: 34 }} src={url} />
             {!isTrim ? (
               <div style={{ display: "flex", gap: 8 }}>
@@ -170,7 +180,7 @@ function HistoryCorpusList({ species, label }) {
                 <button disabled={isDel} onClick={() => del(c.filename)} style={{ padding: "5px 10px", borderRadius: "var(--r-sm)", border: "1px solid #e0b4b4", background: "#fbeaea", color: "#c0392b", fontSize: 12, cursor: isDel ? "default" : "pointer", opacity: isDel ? 0.6 : 1 }}>{isDel ? "Deleting\u2026" : "\ud83d\uddd1 Delete"}</button>
               </div>
             ) : (
-              <TrimEditor clipUrl={url} clipFilename={c.filename} onClose={() => setTrim(null)} onSaved={() => setTrim(null)} />
+              <TrimEditor clipUrl={url} clipFilename={c.filename} onClose={() => setTrim(null)} onSaved={() => { setTrimmedAt(p => ({ ...p, [c.filename]: Date.now() })); setTrim(null); }} />
             )}
           </div>
         );
@@ -182,7 +192,7 @@ function HistoryCorpusList({ species, label }) {
 // ─── App version ────────────────────────────────────────────────────
 // Bump on every deploy. Visible in the footer so we know which build is
 // running when investigating bug reports or screenshots.
-const APP_VERSION = "v6.24";
+const APP_VERSION = "v6.25";
 const APP_VERSION_DATE = "2026-06-08";
 
 // ─── v5.8.0: Service Worker registration ──────────────────────────────
@@ -1411,8 +1421,8 @@ function TrimEditor({ clipUrl, clipFilename, onClose, onSaved }) {
     const L=Math.max(1,selEnd-selStart);
     const buff=ctx.createBuffer(1,L,TRIM_RATE); const ch=buff.getChannelData(0);
     for(let i=0;i<L;i++) ch[i]=s[selStart+i]/32768;
-    const node=ctx.createBufferSource(); node.buffer=buff; node.connect(ctx.destination); node.start();
-    srcNodeRef.current=node;
+    const go=()=>{ const node=ctx.createBufferSource(); node.buffer=buff; node.connect(ctx.destination); node.start(); srcNodeRef.current=node; };
+    if(ctx.state==="suspended"){ ctx.resume().then(go).catch(go); } else { go(); }
   }
 
   async function save(e, force){
