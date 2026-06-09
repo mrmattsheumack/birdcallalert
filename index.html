@@ -192,7 +192,7 @@ function HistoryCorpusList({ species, label }) {
 // ─── App version ────────────────────────────────────────────────────
 // Bump on every deploy. Visible in the footer so we know which build is
 // running when investigating bug reports or screenshots.
-const APP_VERSION = "v6.32";
+const APP_VERSION = "v6.33";
 const APP_VERSION_DATE = "2026-06-08";
 
 // ─── v5.8.0: Service Worker registration ──────────────────────────────
@@ -1127,6 +1127,43 @@ function SettingsSheet({ open, onClose, viewFilter, setViewFilter, notifMode, se
 // (no inner collapsible). Shows a metadata header with live model
 // version/accuracy plus the species count list sorted A-Z.
 function CorpusSheet({ open, onClose, corpusStats }) {
+  // v6.33: live per-species vote accuracy (BN / BB / DEC) computed from
+  // ground-truth rows (species_truth set). Canonicalised both sides so
+  // sub-species (Little Raven -> raven) join to the corpus folder.
+  const [_accBySpecies, _setAccBySpecies] = useState({});
+  useEffect(() => {
+    if (!open) return;
+    let alive = true;
+    (async () => {
+      try {
+        const acc = {};
+        const PAGE = 1000;
+        const ck = (x) => String(canonicaliseSpeciesLabel(x) || "").toLowerCase().trim();
+        for (let off = 0; off < 12000; off += PAGE) {
+          const r = await fetch(
+            `${SUPA_URL}/rest/v1/candidate_sightings?species_truth=not.is.null`
+              + `&select=species_truth,decider_species,bb_species,species_guess`
+              + `&limit=${PAGE}&offset=${off}`,
+            { headers: SUPA_HEADERS }
+          );
+          if (!r.ok) break;
+          const page = await r.json();
+          for (const d of (page || [])) {
+            const key = ck(d.species_truth);
+            if (!key) continue;
+            const a = acc[key] || (acc[key] = { total: 0, bn: 0, bb: 0, decTotal: 0, decHit: 0 });
+            a.total++;
+            if (ck(d.species_guess) === key) a.bn++;
+            if (ck(d.bb_species) === key) a.bb++;
+            if (d.decider_species) { a.decTotal++; if (ck(d.decider_species) === key) a.decHit++; }
+          }
+          if (!page || page.length < PAGE) break;
+        }
+        if (alive) _setAccBySpecies(acc);
+      } catch (_) {}
+    })();
+    return () => { alive = false; };
+  }, [open]);
   if (!open) return null;
   // v6.8: live model metadata. Update these when the production model
   // is replaced on the Pi. Source of truth = boundarybirds_v0.* on Pi.
@@ -1195,6 +1232,7 @@ function CorpusSheet({ open, onClose, corpusStats }) {
             Clips you've confirmed or corrected.
             ● 100+ saturated, ● 80-99 ready, ◐ 50-79 sufficient,
             ◐ 15-49 building, no dot below 15.
+            BN / BB / DEC show each platform's vote accuracy for that species.
           </p>
           {(!corpusStats || corpusStats.entries.length === 0) ? (
             <div style={{
@@ -1225,8 +1263,20 @@ function CorpusSheet({ open, onClose, corpusStats }) {
                       width: 14, textAlign: "center",
                     }}>{dot}</span>
                     <span style={{
-                      flex: 1, fontSize: 13, color: "var(--text)",
-                    }}>{e.label}</span>
+                      flex: 1, display: "flex", flexDirection: "column", gap: 2,
+                    }}>
+                      <span style={{ fontSize: 13, color: "var(--text)" }}>{e.label}</span>
+                      {(() => {
+                        const _a = _accBySpecies[String(canonicaliseSpeciesLabel(e.label) || "").toLowerCase().trim()];
+                        if (!_a || _a.total === 0) return null;
+                        const _pct = (h, t) => t > 0 ? Math.round(h / t * 100) + "%" : "n/a";
+                        return (
+                          <span style={{ fontSize: 11, color: "var(--text-3)", fontVariantNumeric: "tabular-nums" }}>
+                            BN {_pct(_a.bn, _a.total)} · BB {_pct(_a.bb, _a.total)} · DEC {_pct(_a.decHit, _a.decTotal)}
+                          </span>
+                        );
+                      })()}
+                    </span>
                     <span style={{
                       fontSize: 12, color: "var(--text-2)",
                       fontVariantNumeric: "tabular-nums",
