@@ -192,7 +192,7 @@ function HistoryCorpusList({ species, label }) {
 // ─── App version ────────────────────────────────────────────────────
 // Bump on every deploy. Visible in the footer so we know which build is
 // running when investigating bug reports or screenshots.
-const APP_VERSION = "v6.35";
+const APP_VERSION = "v6.36";
 const APP_VERSION_DATE = "2026-06-08";
 
 // ─── v5.8.0: Service Worker registration ──────────────────────────────
@@ -1167,9 +1167,9 @@ function CorpusSheet({ open, onClose, corpusStats }) {
   if (!open) return null;
   // v6.8: live model metadata. Update these when the production model
   // is replaced on the Pi. Source of truth = boundarybirds_v0.* on Pi.
-  const LIVE_MODEL_VERSION  = "v3d_ext";
-  const LIVE_MODEL_ACCURACY = "77.0%";
-  const LIVE_MODEL_CLASSES  = 17;
+  const LIVE_MODEL_VERSION  = "v3j_ext";
+  const LIVE_MODEL_ACCURACY = "78.2%";
+  const LIVE_MODEL_CLASSES  = 18;
   return (
     <div onClick={onClose} style={{
       position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)",
