@@ -192,7 +192,7 @@ function HistoryCorpusList({ species, label }) {
 // ─── App version ────────────────────────────────────────────────────
 // Bump on every deploy. Visible in the footer so we know which build is
 // running when investigating bug reports or screenshots.
-const APP_VERSION = "v6.36";
+const APP_VERSION = "v6.37";
 const APP_VERSION_DATE = "2026-06-08";
 
 // ─── v5.8.0: Service Worker registration ──────────────────────────────
@@ -2554,8 +2554,10 @@ function App() {
       try {
         const ck = (x) => String(canonicaliseSpeciesLabel(x) || "").toLowerCase().trim();
         const cut7 = Date.now() - 7 * 24 * 60 * 60 * 1000;
+        const cut24 = Date.now() - 24 * 60 * 60 * 1000;
         const A = { total: 0, bn: 0, bb: 0, decT: 0, decH: 0 };
         const R = { total: 0, bn: 0, bb: 0, decT: 0, decH: 0 };
+        const D = { total: 0, bn: 0, bb: 0, decT: 0, decH: 0 };
         const PAGE = 1000;
         for (let off = 0; off < 12000; off += PAGE) {
           const r = await fetch(
@@ -2569,18 +2571,20 @@ function App() {
           for (const d of (page || [])) {
             const kt = ck(d.species_truth);
             if (!kt) continue;
-            const recent = d.created_at && new Date(d.created_at).getTime() >= cut7;
-            A.total++; if (recent) R.total++;
-            if (ck(d.species_guess) === kt) { A.bn++; if (recent) R.bn++; }
-            if (ck(d.bb_species) === kt)    { A.bb++; if (recent) R.bb++; }
+            const _t = d.created_at ? new Date(d.created_at).getTime() : 0;
+            const recent = _t >= cut7;
+            const today = _t >= cut24;
+            A.total++; if (recent) R.total++; if (today) D.total++;
+            if (ck(d.species_guess) === kt) { A.bn++; if (recent) R.bn++; if (today) D.bn++; }
+            if (ck(d.bb_species) === kt)    { A.bb++; if (recent) R.bb++; if (today) D.bb++; }
             if (d.decider_species) {
-              A.decT++; if (recent) R.decT++;
-              if (ck(d.decider_species) === kt) { A.decH++; if (recent) R.decH++; }
+              A.decT++; if (recent) R.decT++; if (today) D.decT++;
+              if (ck(d.decider_species) === kt) { A.decH++; if (recent) R.decH++; if (today) D.decH++; }
             }
           }
           if (!page || page.length < PAGE) break;
         }
-        if (alive) _setModelAcc({ all: A, rec: R });
+        if (alive) _setModelAcc({ all: A, rec: R, day: D });
       } catch (_) {}
     })();
     return () => { alive = false; };
@@ -3813,7 +3817,7 @@ function App() {
             {/* v6.34: model accuracy indicator (vote recall, all-time + 7d) */}
             {_modelAcc && _modelAcc.all.total > 0 && (() => {
               const pct = (h, t) => t > 0 ? Math.round(h / t * 100) + "%" : "n/a";
-              const A = _modelAcc.all, R = _modelAcc.rec;
+              const A = _modelAcc.all, R = _modelAcc.rec, D = _modelAcc.day || { total: 0, bn: 0, bb: 0, decT: 0, decH: 0 };
               const rowStyle = { display: "flex", gap: 10, alignItems: "baseline", fontVariantNumeric: "tabular-nums" };
               const tag = { fontSize: 11, color: "var(--text-3)", minWidth: 56 };
               const val = { fontSize: 12, color: "var(--text-2)" };
@@ -3833,6 +3837,10 @@ function App() {
                   <div style={{ ...rowStyle, marginTop: 2 }}>
                     <span style={tag}>last 7d</span>
                     <span style={val}>{R.total > 0 ? `BN ${pct(R.bn, R.total)} · BB ${pct(R.bb, R.total)} · DEC ${pct(R.decH, R.decT)}` : "no recent votes"}</span>
+                  </div>
+                  <div style={{ ...rowStyle, marginTop: 2 }}>
+                    <span style={tag}>last 24h</span>
+                    <span style={val}>{D.total > 0 ? `BN ${pct(D.bn, D.total)} · BB ${pct(D.bb, D.total)} · DEC ${pct(D.decH, D.decT)}` : "no votes today"}</span>
                   </div>
                 </div>
               );
