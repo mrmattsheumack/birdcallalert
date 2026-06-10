@@ -192,7 +192,7 @@ function HistoryCorpusList({ species, label }) {
 // ─── App version ────────────────────────────────────────────────────
 // Bump on every deploy. Visible in the footer so we know which build is
 // running when investigating bug reports or screenshots.
-const APP_VERSION = "v6.34";
+const APP_VERSION = "v6.35";
 const APP_VERSION_DATE = "2026-06-08";
 
 // ─── v5.8.0: Service Worker registration ──────────────────────────────
@@ -3224,7 +3224,13 @@ function App() {
       const _canonGuess = canonicaliseSpeciesLabel(d.species_guess);
       const label = corrected || _canonGuess || canonicaliseSpeciesLabel(birdLabel(d));
       const displayCommon = corrected || canonicaliseSpeciesLabel(d.species_guess);
-      const e = m.get(label) || {
+      // v6.35: de-dupe Settings rows by a case-normalised key so naming
+      // variants that canonicalise to the same species but differ in case
+      // (e.g. "Common Myna" vs "common-myna") collapse to ONE row instead
+      // of two. The pretty label/common is kept from the first insert.
+      const nk = (x) => String(canonicaliseSpeciesLabel(x) || "").toLowerCase().trim();
+      const _key = nk(label);
+      const e = m.get(_key) || {
         label, common: displayCommon, count: 0, latestTs: null, maxConf: 0,
         scientific: corrected ? null : (md.scientific_name || null),
       };
@@ -3232,7 +3238,7 @@ function App() {
       const ts = new Date(d.created_at).getTime();
       if (e.latestTs === null || ts > e.latestTs) e.latestTs = ts;
       e.maxConf = Math.max(e.maxConf, d.confidence || 0);
-      m.set(label, e);
+      m.set(_key, e);
     }
     // v6.17: ALSO include species with any non-default classification
     // (muted/priority/suspect) even if not detected in the live window.
@@ -3245,9 +3251,12 @@ function App() {
     for (const [clsKey, clsState] of Object.entries(classifications || {})) {
       if (clsState === "normal") continue;
       const ck = classificationKey(clsKey);   // v6.19: fold to canonical
-      if (m.has(ck)) continue;                 // detection row already exists
+      // v6.35: match the detection loop's normalised key space so a muted/
+      // priority species already shown as a detection row is not added again.
+      const _ck = String(ck || "").toLowerCase().trim();
+      if (m.has(_ck)) continue;                // detection row already exists
       const parts = String(clsKey).split("_");
-      m.set(ck, {
+      m.set(_ck, {
         label: ck,
         common: canonicaliseSpeciesLabel(parts[0]) || ck,
         scientific: parts[1] || null,
