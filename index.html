@@ -192,7 +192,7 @@ function HistoryCorpusList({ species, label }) {
 // ─── App version ────────────────────────────────────────────────────
 // Bump on every deploy. Visible in the footer so we know which build is
 // running when investigating bug reports or screenshots.
-const APP_VERSION = "v6.33";
+const APP_VERSION = "v6.34";
 const APP_VERSION_DATE = "2026-06-08";
 
 // ─── v5.8.0: Service Worker registration ──────────────────────────────
@@ -2543,6 +2543,48 @@ function DetectionCard({ d, expanded, onToggle, onDismiss, onRestore, mode,
 // ─── Main app ───────────────────────────────────────────────────────
 function App() {
   const [detections, setDetections] = useState([]);
+  // v6.34: live model-accuracy indicator (pooled vote recall over ground-truth
+  // rows, all-time and last 7 days). Fetched once on mount, same definition as
+  // the per-species view: BN/BB scored over all truth rows, DEC only where the
+  // decider spoke. Canonicalised both sides so sub-species pool correctly.
+  const [_modelAcc, _setModelAcc] = useState(null);
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const ck = (x) => String(canonicaliseSpeciesLabel(x) || "").toLowerCase().trim();
+        const cut7 = Date.now() - 7 * 24 * 60 * 60 * 1000;
+        const A = { total: 0, bn: 0, bb: 0, decT: 0, decH: 0 };
+        const R = { total: 0, bn: 0, bb: 0, decT: 0, decH: 0 };
+        const PAGE = 1000;
+        for (let off = 0; off < 12000; off += PAGE) {
+          const r = await fetch(
+            `${SUPA_URL}/rest/v1/candidate_sightings?species_truth=not.is.null`
+              + `&select=species_truth,decider_species,bb_species,species_guess,created_at`
+              + `&limit=${PAGE}&offset=${off}`,
+            { headers: SUPA_HEADERS }
+          );
+          if (!r.ok) break;
+          const page = await r.json();
+          for (const d of (page || [])) {
+            const kt = ck(d.species_truth);
+            if (!kt) continue;
+            const recent = d.created_at && new Date(d.created_at).getTime() >= cut7;
+            A.total++; if (recent) R.total++;
+            if (ck(d.species_guess) === kt) { A.bn++; if (recent) R.bn++; }
+            if (ck(d.bb_species) === kt)    { A.bb++; if (recent) R.bb++; }
+            if (d.decider_species) {
+              A.decT++; if (recent) R.decT++;
+              if (ck(d.decider_species) === kt) { A.decH++; if (recent) R.decH++; }
+            }
+          }
+          if (!page || page.length < PAGE) break;
+        }
+        if (alive) _setModelAcc({ all: A, rec: R });
+      } catch (_) {}
+    })();
+    return () => { alive = false; };
+  }, []);
   // reappear-fix: IDs the user just actioned (dismiss/confirm/correct/swap).
   // Maps id -> expiry timestamp. fetchLive keeps these hidden until the
   // server catches up, so a poll mid-PATCH can't resurrect a handled card.
@@ -3759,6 +3801,33 @@ function App() {
         {/* ─── LIVE VIEW ─────────────────────────────────────────────── */}
         {viewMode === "live" && (
           <>
+            {/* v6.34: model accuracy indicator (vote recall, all-time + 7d) */}
+            {_modelAcc && _modelAcc.all.total > 0 && (() => {
+              const pct = (h, t) => t > 0 ? Math.round(h / t * 100) + "%" : "n/a";
+              const A = _modelAcc.all, R = _modelAcc.rec;
+              const rowStyle = { display: "flex", gap: 10, alignItems: "baseline", fontVariantNumeric: "tabular-nums" };
+              const tag = { fontSize: 11, color: "var(--text-3)", minWidth: 56 };
+              const val = { fontSize: 12, color: "var(--text-2)" };
+              return (
+                <div style={{
+                  margin: "0 0 12px", padding: "10px 14px",
+                  background: "var(--surface)", border: "1px solid var(--border)",
+                  borderRadius: "var(--r-md)",
+                }}>
+                  <div style={{ fontSize: 11, color: "var(--text-3)", marginBottom: 6, textTransform: "uppercase", letterSpacing: 0.4 }}>
+                    Model accuracy · vote recall
+                  </div>
+                  <div style={rowStyle}>
+                    <span style={tag}>all-time</span>
+                    <span style={val}>BN {pct(A.bn, A.total)} · BB {pct(A.bb, A.total)} · DEC {pct(A.decH, A.decT)}</span>
+                  </div>
+                  <div style={{ ...rowStyle, marginTop: 2 }}>
+                    <span style={tag}>last 7d</span>
+                    <span style={val}>{R.total > 0 ? `BN ${pct(R.bn, R.total)} · BB ${pct(R.bb, R.total)} · DEC ${pct(R.decH, R.decT)}` : "no recent votes"}</span>
+                  </div>
+                </div>
+              );
+            })()}
             {/* Empty state - no detections in the live 24h window */}
             {!loading && detections.length === 0 && !error && (
               <div style={{
