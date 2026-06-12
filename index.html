@@ -504,6 +504,57 @@ async function syncMutedToServer(classifications) {
   }
 }
 
+// ─── Auto-confirm (BN=BB agreement) ─────────────────────────────────
+// v6.40: per-species auto-confirm. When the Pi sees BirdNET and
+// BoundaryBirds agree (both >=85% conf) on a species in this list, it
+// marks the detection confirmed automatically. NEVER adds to corpus.
+// Accuracy figures below are the measured agreement accuracy (how often
+// BN=BB has been correct historically). Stable; refresh by re-running
+// the voting analysis. Sub-species collapsed (e.g. little-raven->raven).
+const AUTOCONFIRM_AGREE_ACCURACY = {
+  "Common Myna": 100, "Eurasian Blackbird": 100, "European Starling": 100,
+  "Noisy Miner": 100, "Masked Lapwing": 100, "Spotted Dove": 100,
+  "Eastern Spinebill": 100, "Magpie-lark": 100,
+  "Sulphur-crested Cockatoo": 99, "Wattlebird": 99, "Rainbow Lorikeet": 99,
+  "Brown Thornbill": 98,
+  "Crimson Rosella": 91, "Raven": 89, "Little Corella": 80,
+};
+
+// Auto-confirm enabled species live in their own localStorage object,
+// keyed by canonicalised label -> true. Synced to Supabase pi_config
+// (key=autoconfirm_species) exactly like the muted list, because the Pi
+// is what acts on it.
+function loadAutoConfirm() {
+  try {
+    const raw = localStorage.getItem("bca_autoconfirm");
+    return raw ? JSON.parse(raw) : {};
+  } catch (e) { return {}; }
+}
+function saveAutoConfirm(obj) {
+  try { localStorage.setItem("bca_autoconfirm", JSON.stringify(obj)); }
+  catch (e) {}
+}
+
+// Sync the auto-confirm species list to Supabase pi_config so the Pi can
+// act on it. Mirrors syncMutedToServer. Failure is non-blocking.
+async function syncAutoConfirmToServer(autoConfirm) {
+  const list = Object.entries(autoConfirm)
+    .filter(([_, on]) => on === true)
+    .map(([label]) => label);
+  try {
+    await fetch(
+      `${SUPA_URL}/rest/v1/pi_config?key=eq.autoconfirm_species`,
+      {
+        method: "PATCH",
+        headers: { ...SUPA_HEADERS, "Prefer": "return=minimal" },
+        body: JSON.stringify({ value: list }),
+      }
+    );
+  } catch (e) {
+    console.warn("Failed to sync auto-confirm list to Pi:", e);
+  }
+}
+
 // ─── Helpers ────────────────────────────────────────────────────────
 function birdLabel(d) {
   const m = d.metadata || {};
@@ -1090,6 +1141,31 @@ function SettingsSheet({ open, onClose, viewFilter, setViewFilter, notifMode, se
                           {s.lastSeen && <span>· last {fmtAgeShort(s.lastSeen)}</span>}
                         </div>
                       </div>
+                      {(() => {
+                        const acKey = classificationKey(s.label);
+                        const acc = AUTOCONFIRM_AGREE_ACCURACY[acKey];
+                        if (acc === undefined) return null;
+                        const on = autoConfirm[acKey] === true;
+                        const lowConf = acc < 95;
+                        return (
+                          <div style={{ display: "flex", flexDirection: "column",
+                              alignItems: "flex-end", gap: 2, flexShrink: 0 }}>
+                            <label style={{ display: "flex", alignItems: "center",
+                                gap: 6, cursor: "pointer", fontSize: 11,
+                                color: "var(--text-3)" }}
+                              title={`BN=BB agreement has been ${acc}% accurate for this species. Auto-confirm marks matching detections confirmed (never added to corpus).`}>
+                              <span style={{ color: lowConf ? "#c2792e" : "var(--text-3)" }}>
+                                {acc}%{lowConf ? " ⚠️" : ""}
+                              </span>
+                              <input type="checkbox" checked={on}
+                                onChange={(e) => setAutoConfirm(s.label, e.target.checked)}
+                                style={{ width: 16, height: 16, cursor: "pointer" }} />
+                            </label>
+                            <span style={{ fontSize: 9, color: "var(--text-3)",
+                                letterSpacing: 0.3 }}>auto-confirm</span>
+                          </div>
+                        );
+                      })()}
                     </div>
                   );
                 })}
@@ -2437,41 +2513,6 @@ function DetectionCard({ d, expanded, onToggle, onDismiss, onRestore, mode,
             </div>
           )}
 
-          {/* Classification quick-toggle */}
-          {mode === "live" && (
-            <div style={{ marginBottom: 12 }}>
-              <div style={{ fontSize: 10, color: "var(--text-3)",
-                  fontWeight: 600, letterSpacing: 0.5,
-                  textTransform: "uppercase", marginBottom: 6 }}>
-                Species classification
-              </div>
-              <div style={{ display: "flex", gap: 4 }}>
-                {Object.entries(CLASSIFICATIONS).map(([key, cfg]) => {
-                  const active = (classification || "normal") === key;
-                  return (
-                    <button key={key}
-                      onClick={(e) => { e.stopPropagation(); onSetClassification?.(label, key); }}
-                      style={{
-                        flex: 1, padding: "8px 6px",
-                        background: active ? cfg.color : "var(--surface)",
-                        color: active ? "#fff" : "var(--text-2)",
-                        border: "1px solid " + (active ? cfg.color : "var(--border)"),
-                        borderRadius: "var(--r-sm)",
-                        fontSize: 11, fontWeight: 500, cursor: "pointer",
-                        display: "flex", flexDirection: "column", gap: 2,
-                        alignItems: "center",
-                      }}>
-                      <span style={{ fontSize: 14 }}>{cfg.icon}</span>
-                      <span>{cfg.label}</span>
-                    </button>
-                  );
-                })}
-              </div>
-              <div style={{ fontSize: 11, color: "var(--text-3)", marginTop: 6 }}>
-                Affects all detections of <strong>{d.species_guess}</strong>, current and future.
-              </div>
-            </div>
-          )}
 
           {/* v6.15: Both-correct checkbox. Opt-in metadata that the
               tick button reads. Only shown when BB ran on this clip
@@ -2652,6 +2693,21 @@ function App() {
   useEffect(() => { lsSet(LS.conf, String(confThreshold)); }, [confThreshold]);
 
   // Sync muted list to Pi once on mount. Future updates go through
+  // v6.40: auto-confirm state. {canonLabel: true} for species the Pi
+  // should auto-confirm when BN=BB. Persisted to localStorage and synced
+  // to Supabase pi_config (autoconfirm_species) so the Pi can act on it.
+  const [autoConfirm, setAutoConfirmState] = useState(() => loadAutoConfirm());
+  const setAutoConfirm = useCallback((label, on) => {
+    setAutoConfirmState(prev => {
+      const next = { ...prev };
+      const k = classificationKey(label);
+      if (on) next[k] = true; else delete next[k];
+      saveAutoConfirm(next);
+      syncAutoConfirmToServer(next);
+      return next;
+    });
+  }, []);
+
   // setClassifications which also syncs.
   useEffect(() => {
     syncMutedToServer(classifications);
