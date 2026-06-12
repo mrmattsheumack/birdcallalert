@@ -872,6 +872,8 @@ function lsSet(key, val) {
 function SettingsSheet({ open, onClose, viewFilter, setViewFilter, notifMode, setNotifMode,
                          confThreshold, setConfThreshold,
                          classifications, setClassifications,
+                         autoConfirm, setAutoConfirm,
+                         autoConfirm, setAutoConfirm,
                          allSeenSpecies, notifPerm, requestNotif,
                          corpusStats }) {
   if (!open) return null;
@@ -4318,6 +4320,8 @@ function App() {
         notifMode={notifMode} setNotifMode={setNotifMode}
         confThreshold={confThreshold} setConfThreshold={setConfThreshold}
         classifications={classifications} setClassifications={setClassifications}
+        autoConfirm={autoConfirm} setAutoConfirm={setAutoConfirm}
+        autoConfirm={autoConfirm} setAutoConfirm={setAutoConfirm}
         allSeenSpecies={speciesByLabel}
         notifPerm={notifPerm} requestNotif={requestNotif}
         corpusStats={corpusStats}
