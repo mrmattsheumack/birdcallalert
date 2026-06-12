@@ -598,6 +598,12 @@ function namedSpecies(d) {
 function isPriority(d, classifications) {
   return namedSpecies(d).some(s => getClassification(s, classifications) === "priority");
 }
+// v6.42: the specific priority species that triggered a push (first named
+// species classified priority). Used to show "Decider or Trigger" in the
+// notification when the decider verdict differs from the alert trigger.
+function priorityTrigger(d, classifications) {
+  return namedSpecies(d).find(s => getClassification(s, classifications) === "priority") || null;
+}
 // Conservative mute: suppress only when EVERY named species is muted.
 function isMuted(d, classifications) {
   const names = namedSpecies(d);
@@ -2867,7 +2873,11 @@ function App() {
           ) {
             // v5.8.0: showBirdNotif uses SW route (works on Chrome Android),
             // falls back to direct constructor for older browsers.
-            const _notifTitle = `🐦 ${classificationSpecies(newest)}`;
+            const _decSp = classificationSpecies(newest);
+            const _trigSp = priorityTrigger(newest, cls_now);
+            const _notifTitle = (_trigSp && _trigSp !== _decSp)
+              ? `🐦 ${_decSp} or ${_trigSp}`
+              : `🐦 ${_decSp}`;
             const _notifBody = `Detected nearby · ${Math.round((newest.confidence || 0) * 100)}% confidence`;
             showBirdNotif(_notifTitle, _notifBody, "bird-detection");
             lastNotifId.current = newest.id;
