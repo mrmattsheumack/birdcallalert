@@ -555,6 +555,98 @@ async function syncAutoConfirmToServer(autoConfirm) {
   }
 }
 
+// ─── Decider-based auto-confirm (v6.45) ─────────────────────────────
+// Separate from BN=BB auto-confirm. Fires when the DECIDER verdict names
+// an enabled species (independent of agreement). Synced to pi_config
+// key=decider_autoconfirm_species. Snapshot below = all-time DEC accuracy
+// and verified-clip count per species (from the 2026-06-13 analysis).
+// Refresh by re-running the per-species accuracy query.
+const DECIDER_ACCURACY = {
+  "Common Myna": { acc: 84, n: 1942 }, "Sulphur-crested Cockatoo": { acc: 87, n: 1014 },
+  "Wattlebird": { acc: 83, n: 926 }, "Eurasian Blackbird": { acc: 95, n: 702 },
+  "Raven": { acc: 94, n: 694 }, "Rainbow Lorikeet": { acc: 90, n: 688 },
+  "European Starling": { acc: 82, n: 276 }, "Spotted Dove": { acc: 97, n: 268 },
+  "Brown Thornbill": { acc: 94, n: 255 }, "Crimson Rosella": { acc: 76, n: 208 },
+  "Noisy Miner": { acc: 89, n: 140 }, "Gray Butcherbird": { acc: 91, n: 124 },
+  "Australian Magpie": { acc: 92, n: 120 }, "Little Corella": { acc: 84, n: 86 },
+  "Masked Lapwing": { acc: 83, n: 84 }, "Eastern Spinebill": { acc: 98, n: 82 },
+  "Magpie-lark": { acc: 96, n: 70 },
+};
+
+function loadDeciderAutoConfirm() {
+  try {
+    const raw = localStorage.getItem("bca_decider_autoconfirm");
+    return raw ? JSON.parse(raw) : {};
+  } catch (e) { return {}; }
+}
+function saveDeciderAutoConfirm(obj) {
+  try { localStorage.setItem("bca_decider_autoconfirm", JSON.stringify(obj)); }
+  catch (e) {}
+}
+async function syncDeciderAutoConfirmToServer(decAutoConfirm) {
+  const list = Object.entries(decAutoConfirm)
+    .filter(([_, on]) => on === true)
+    .map(([label]) => label);
+  try {
+    await fetch(
+      `${SUPA_URL}/rest/v1/pi_config?key=eq.decider_autoconfirm_species`,
+      {
+        method: "PATCH",
+        headers: { ...SUPA_HEADERS, "Prefer": "return=minimal" },
+        body: JSON.stringify({ value: list }),
+      }
+    );
+  } catch (e) {
+    console.warn("Failed to sync decider auto-confirm list to Pi:", e);
+  }
+}
+
+// ─── Decider-based auto-confirm (v6.45) ─────────────────────────────
+// Separate from BN=BB auto-confirm. Fires when the DECIDER verdict names
+// an enabled species (independent of agreement). Synced to pi_config
+// key=decider_autoconfirm_species. Snapshot below = all-time DEC accuracy
+// and verified-clip count per species (from the 2026-06-13 analysis).
+// Refresh by re-running the per-species accuracy query.
+const DECIDER_ACCURACY = {
+  "Common Myna": { acc: 84, n: 1942 }, "Sulphur-crested Cockatoo": { acc: 87, n: 1014 },
+  "Wattlebird": { acc: 83, n: 926 }, "Eurasian Blackbird": { acc: 95, n: 702 },
+  "Raven": { acc: 94, n: 694 }, "Rainbow Lorikeet": { acc: 90, n: 688 },
+  "European Starling": { acc: 82, n: 276 }, "Spotted Dove": { acc: 97, n: 268 },
+  "Brown Thornbill": { acc: 94, n: 255 }, "Crimson Rosella": { acc: 76, n: 208 },
+  "Noisy Miner": { acc: 89, n: 140 }, "Gray Butcherbird": { acc: 91, n: 124 },
+  "Australian Magpie": { acc: 92, n: 120 }, "Little Corella": { acc: 84, n: 86 },
+  "Masked Lapwing": { acc: 83, n: 84 }, "Eastern Spinebill": { acc: 98, n: 82 },
+  "Magpie-lark": { acc: 96, n: 70 },
+};
+
+function loadDeciderAutoConfirm() {
+  try {
+    const raw = localStorage.getItem("bca_decider_autoconfirm");
+    return raw ? JSON.parse(raw) : {};
+  } catch (e) { return {}; }
+}
+function saveDeciderAutoConfirm(obj) {
+  try { localStorage.setItem("bca_decider_autoconfirm", JSON.stringify(obj)); }
+  catch (e) {}
+}
+async function syncDeciderAutoConfirmToServer(decAutoConfirm) {
+  const list = Object.entries(decAutoConfirm)
+    .filter(([_, on]) => on === true)
+    .map(([label]) => label);
+  try {
+    await fetch(
+      `${SUPA_URL}/rest/v1/pi_config?key=eq.decider_autoconfirm_species`,
+      {
+        method: "PATCH",
+        headers: { ...SUPA_HEADERS, "Prefer": "return=minimal" },
+        body: JSON.stringify({ value: list }),
+      }
+    );
+  } catch (e) {
+    console.warn("Failed to sync decider auto-confirm list to Pi:", e);
+  }
+}
+
 // ─── Helpers ────────────────────────────────────────────────────────
 function birdLabel(d) {
   const m = d.metadata || {};
@@ -879,6 +971,7 @@ function SettingsSheet({ open, onClose, viewFilter, setViewFilter, notifMode, se
                          confThreshold, setConfThreshold,
                          classifications, setClassifications,
                          autoConfirm, setAutoConfirm,
+                         decAutoConfirm, setDecAutoConfirm,
                          allSeenSpecies, notifPerm, requestNotif,
                          corpusStats }) {
   if (!open) return null;
@@ -1170,6 +1263,33 @@ function SettingsSheet({ open, onClose, viewFilter, setViewFilter, notifMode, se
                             </label>
                             <span style={{ fontSize: 9, color: "var(--text-3)",
                                 letterSpacing: 0.3 }}>auto-confirm</span>
+                          </div>
+                        );
+                      })()}
+
+                      {(() => {
+                        const dKey = classificationKey(s.label);
+                        const dRec = DECIDER_ACCURACY[dKey];
+                        if (!dRec) return null;
+                        const dOn = decAutoConfirm[dKey] === true;
+                        const dLow = dRec.acc < 90;
+                        return (
+                          <div style={{ display: "flex", flexDirection: "column",
+                              alignItems: "flex-end", gap: 2, flexShrink: 0,
+                              marginLeft: 10 }}>
+                            <label style={{ display: "flex", alignItems: "center",
+                                gap: 6, cursor: "pointer", fontSize: 11,
+                                color: "var(--text-3)" }}
+                              title={`Decider has been ${dRec.acc}% accurate for this species over ${dRec.n} verified clips. Auto-confirm marks decider detections confirmed (never added to corpus).`}>
+                              <span style={{ color: dLow ? "#c2792e" : "#2e7d52" }}>
+                                {dRec.acc}% · {dRec.n}
+                              </span>
+                              <input type="checkbox" checked={dOn}
+                                onChange={(e) => setDecAutoConfirm(s.label, e.target.checked)}
+                                style={{ width: 16, height: 16, cursor: "pointer" }} />
+                            </label>
+                            <span style={{ fontSize: 9, color: "var(--text-3)",
+                                letterSpacing: 0.3 }}>DEC auto-confirm</span>
                           </div>
                         );
                       })()}
@@ -2726,6 +2846,21 @@ function App() {
       if (on) next[k] = true; else delete next[k];
       saveAutoConfirm(next);
       syncAutoConfirmToServer(next);
+      return next;
+    });
+  }, []);
+
+  // v6.45: decider-based auto-confirm state. {canonLabel: true} for species
+  // the Pi should auto-confirm when the DECIDER names them. Separate from the
+  // BN=BB list above. Synced to pi_config (decider_autoconfirm_species).
+  const [decAutoConfirm, setDecAutoConfirmState] = useState(() => loadDeciderAutoConfirm());
+  const setDecAutoConfirm = useCallback((label, on) => {
+    setDecAutoConfirmState(prev => {
+      const next = { ...prev };
+      const k = classificationKey(label);
+      if (on) next[k] = true; else delete next[k];
+      saveDeciderAutoConfirm(next);
+      syncDeciderAutoConfirmToServer(next);
       return next;
     });
   }, []);
@@ -4345,6 +4480,7 @@ function App() {
         confThreshold={confThreshold} setConfThreshold={setConfThreshold}
         classifications={classifications} setClassifications={setClassifications}
         autoConfirm={autoConfirm} setAutoConfirm={setAutoConfirm}
+        decAutoConfirm={decAutoConfirm} setDecAutoConfirm={setDecAutoConfirm}
         allSeenSpecies={speciesByLabel}
         notifPerm={notifPerm} requestNotif={requestNotif}
         corpusStats={corpusStats}
