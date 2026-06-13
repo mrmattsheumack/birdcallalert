@@ -2637,10 +2637,13 @@ function App() {
             A.total++; if (recent) R.total++; if (today) D.total++;
             if (ck(d.species_guess) === kt) { A.bn++; if (recent) R.bn++; if (today) D.bn++; }
             if (ck(d.bb_species) === kt)    { A.bb++; if (recent) R.bb++; if (today) D.bb++; }
-            if (d.decider_species) {
-              A.decT++; if (recent) R.decT++; if (today) D.decT++;
-              if (ck(d.decider_species) === kt) { A.decH++; if (recent) R.decH++; if (today) D.decH++; }
-            }
+            // v6.44: DEC scored on EVERY verified clip against the species
+            // shown at the top of the alert (decider_species, else the BN
+            // fallback) - i.e. exactly what the user saw. Same denominator
+            // as BN/BB, since the decider always presents a suggestion.
+            const _decShown = ck(d.decider_species) || ck(d.species_guess);
+            A.decT++; if (recent) R.decT++; if (today) D.decT++;
+            if (_decShown === kt) { A.decH++; if (recent) R.decH++; if (today) D.decH++; }
           }
           if (!page || page.length < PAGE) break;
         }
