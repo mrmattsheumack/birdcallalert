@@ -555,51 +555,6 @@ async function syncAutoConfirmToServer(autoConfirm) {
   }
 }
 
-// ─── Decider-based auto-confirm (v6.45) ─────────────────────────────
-// Separate from BN=BB auto-confirm. Fires when the DECIDER verdict names
-// an enabled species (independent of agreement). Synced to pi_config
-// key=decider_autoconfirm_species. Snapshot below = all-time DEC accuracy
-// and verified-clip count per species (from the 2026-06-13 analysis).
-// Refresh by re-running the per-species accuracy query.
-const DECIDER_ACCURACY = {
-  "Common Myna": { acc: 84, n: 1942 }, "Sulphur-crested Cockatoo": { acc: 87, n: 1014 },
-  "Wattlebird": { acc: 83, n: 926 }, "Eurasian Blackbird": { acc: 95, n: 702 },
-  "Raven": { acc: 94, n: 694 }, "Rainbow Lorikeet": { acc: 90, n: 688 },
-  "European Starling": { acc: 82, n: 276 }, "Spotted Dove": { acc: 97, n: 268 },
-  "Brown Thornbill": { acc: 94, n: 255 }, "Crimson Rosella": { acc: 76, n: 208 },
-  "Noisy Miner": { acc: 89, n: 140 }, "Gray Butcherbird": { acc: 91, n: 124 },
-  "Australian Magpie": { acc: 92, n: 120 }, "Little Corella": { acc: 84, n: 86 },
-  "Masked Lapwing": { acc: 83, n: 84 }, "Eastern Spinebill": { acc: 98, n: 82 },
-  "Magpie-lark": { acc: 96, n: 70 },
-};
-
-function loadDeciderAutoConfirm() {
-  try {
-    const raw = localStorage.getItem("bca_decider_autoconfirm");
-    return raw ? JSON.parse(raw) : {};
-  } catch (e) { return {}; }
-}
-function saveDeciderAutoConfirm(obj) {
-  try { localStorage.setItem("bca_decider_autoconfirm", JSON.stringify(obj)); }
-  catch (e) {}
-}
-async function syncDeciderAutoConfirmToServer(decAutoConfirm) {
-  const list = Object.entries(decAutoConfirm)
-    .filter(([_, on]) => on === true)
-    .map(([label]) => label);
-  try {
-    await fetch(
-      `${SUPA_URL}/rest/v1/pi_config?key=eq.decider_autoconfirm_species`,
-      {
-        method: "PATCH",
-        headers: { ...SUPA_HEADERS, "Prefer": "return=minimal" },
-        body: JSON.stringify({ value: list }),
-      }
-    );
-  } catch (e) {
-    console.warn("Failed to sync decider auto-confirm list to Pi:", e);
-  }
-}
 
 // ─── Decider-based auto-confirm (v6.45) ─────────────────────────────
 // Separate from BN=BB auto-confirm. Fires when the DECIDER verdict names
