@@ -2608,16 +2608,28 @@ function App() {
         const D = { total: 0, bn: 0, bb: 0, decT: 0, decH: 0 };
         const PAGE = 1000;
         for (let off = 0; off < 12000; off += PAGE) {
+          // v6.43: truth = the user's verdict only. Fetch rows the user
+          // voted (verdict_source=user) OR any confirmed row (manual confirm,
+          // swap-to-BN, or auto-confirm). EXCLUDES decider auto-truth
+          // (verdict_source=auto), which is unverified and was distorting the %.
           const r = await fetch(
-            `${SUPA_URL}/rest/v1/candidate_sightings?species_truth=not.is.null`
-              + `&select=species_truth,decider_species,bb_species,species_guess,created_at`
+            `${SUPA_URL}/rest/v1/candidate_sightings`
+              + `?or=(verdict_source.eq.user,metadata->>confirmed.eq.true)`
+              + `&select=species_truth,decider_species,bb_species,species_guess,metadata,created_at`
               + `&limit=${PAGE}&offset=${off}`,
             { headers: SUPA_HEADERS }
           );
           if (!r.ok) break;
           const page = await r.json();
           for (const d of (page || [])) {
-            const kt = ck(d.species_truth);
+            const _meta = d.metadata || {};
+            // Truth: a correction wins; else a confirmed row endorses BN's
+            // guess (species_guess); else fall back to species_truth. We use
+            // species_guess (not bb_species) for confirms so BB is scored
+            // neutrally, not graded against its own output.
+            const truthRaw = _meta.manual_label
+              || (_meta.confirmed ? d.species_guess : d.species_truth);
+            const kt = ck(truthRaw);
             if (!kt) continue;
             const _t = d.created_at ? new Date(d.created_at).getTime() : 0;
             const recent = _t >= cut7;
