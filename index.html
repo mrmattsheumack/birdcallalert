@@ -511,7 +511,7 @@ async function syncMutedToServer(classifications) {
 // Accuracy figures below are the measured agreement accuracy (how often
 // BN=BB has been correct historically). Stable; refresh by re-running
 // the voting analysis. Sub-species collapsed (e.g. little-raven->raven).
-const AUTOCONFIRM_AGREE_ACCURACY = {
+const AUTOCONFIRM_AGREE_ACCURACY_DEFAULT = {
   "Common Myna": 100, "Eurasian Blackbird": 100, "European Starling": 100,
   "Noisy Miner": 100, "Masked Lapwing": 100, "Spotted Dove": 100,
   "Eastern Spinebill": 100, "Magpie-lark": 100,
@@ -562,7 +562,7 @@ async function syncAutoConfirmToServer(autoConfirm) {
 // key=decider_autoconfirm_species. Snapshot below = all-time DEC accuracy
 // and verified-clip count per species (from the 2026-06-13 analysis).
 // Refresh by re-running the per-species accuracy query.
-const DECIDER_ACCURACY = {
+const DECIDER_ACCURACY_DEFAULT = {
   "Common Myna": { acc: 84, n: 1942 }, "Sulphur-crested Cockatoo": { acc: 87, n: 1014 },
   "Wattlebird": { acc: 83, n: 926 }, "Eurasian Blackbird": { acc: 95, n: 702 },
   "Raven": { acc: 94, n: 694 }, "Rainbow Lorikeet": { acc: 90, n: 688 },
@@ -573,6 +573,70 @@ const DECIDER_ACCURACY = {
   "Masked Lapwing": { acc: 83, n: 84 }, "Eastern Spinebill": { acc: 98, n: 82 },
   "Magpie-lark": { acc: 96, n: 70 },
 };
+
+// v6.46: live-refreshable accuracy snapshots. The _DEFAULT tables above are
+// the baseline (2026-06-13). A localStorage override, written by the manual
+// "Refresh accuracy" button in Settings, takes precedence and survives reload.
+function _loadAccOverride(key, dflt) {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : dflt;
+  } catch (e) { return dflt; }
+}
+let AUTOCONFIRM_AGREE_ACCURACY = _loadAccOverride("bca_agree_acc", AUTOCONFIRM_AGREE_ACCURACY_DEFAULT);
+let DECIDER_ACCURACY = _loadAccOverride("bca_dec_acc", DECIDER_ACCURACY_DEFAULT);
+
+// Recompute both accuracy tables from verified clips (votes + confirms),
+// persist to localStorage, and return the new tables. Heavy query (paginated),
+// only run on explicit user action. Mirrors the per-species analysis:
+//  - DEC: of all verified clips for a species, decider (else BN fallback) vs truth.
+//  - BN=BB agreement: of clips where BN==BB, how often the agreed call == truth.
+async function refreshAccuracySnapshots() {
+  const _norm = (x) => {
+    let v = String(canonicaliseSpeciesLabel(x) || "").toLowerCase().trim();
+    return v;
+  };
+  const titleOf = (k) => canonicaliseSpeciesLabel(k);
+  const dec = {}; const agree = {};
+  let off = 0;
+  while (off < 20000) {
+    const r = await fetch(
+      `${SUPA_URL}/rest/v1/candidate_sightings`
+        + `?or=(verdict_source.eq.user,metadata->>confirmed.eq.true)`
+        + `&select=species_guess,bb_species,decider_species,species_truth,metadata`
+        + `&limit=1000&offset=${off}`,
+      { headers: SUPA_HEADERS }
+    );
+    if (!r.ok) break;
+    const page = await r.json();
+    for (const d of (page || [])) {
+      const m = d.metadata || {};
+      const t = _norm(m.manual_label || (m.confirmed ? d.species_guess : d.species_truth));
+      if (!t) continue;
+      const bn = _norm(d.species_guess);
+      const bb = _norm(d.bb_species);
+      const ds = _norm(d.decider_species) || bn;
+      if (!dec[t]) dec[t] = { hit: 0, n: 0 };
+      dec[t].n++; if (ds === t) dec[t].hit++;
+      if (bn && bb && bn === bb) {
+        if (!agree[t]) agree[t] = { hit: 0, n: 0 };
+        agree[t].n++; if (bn === t) agree[t].hit++;
+      }
+    }
+    if (!page || page.length < 1000) break;
+    off += 1000;
+  }
+  const decOut = {}; const agreeOut = {};
+  for (const k in dec) decOut[titleOf(k)] = { acc: Math.round(100 * dec[k].hit / dec[k].n), n: dec[k].n };
+  for (const k in agree) if (agree[k].n >= 5) agreeOut[titleOf(k)] = Math.round(100 * agree[k].hit / agree[k].n);
+  try {
+    localStorage.setItem("bca_dec_acc", JSON.stringify(decOut));
+    localStorage.setItem("bca_agree_acc", JSON.stringify(agreeOut));
+  } catch (e) {}
+  AUTOCONFIRM_AGREE_ACCURACY = agreeOut;
+  DECIDER_ACCURACY = decOut;
+  return { dec: decOut, agree: agreeOut };
+}
 
 function loadDeciderAutoConfirm() {
   try {
@@ -1146,6 +1210,23 @@ function SettingsSheet({ open, onClose, viewFilter, setViewFilter, notifMode, se
             <div style={{ fontSize: 12, color: "var(--text-3)", marginBottom: 10, lineHeight: 1.4 }}>
               Tap a species to cycle through states: ○ Normal → ⭐ Priority → ⚠️ Suspect → 🔇 Muted → ○ Normal.
               Muted species stop being saved on the Pi (saves disk).
+            </div>
+            <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
+              <button
+                onClick={async (ev) => {
+                  const b = ev.currentTarget;
+                  if (b.dataset.busy === "1") return;
+                  b.dataset.busy = "1"; b.textContent = "Refreshing…"; b.style.opacity = "0.6";
+                  try { await refreshAccuracySnapshots(); setClassifications(c => ({ ...c })); }
+                  catch (e) { console.warn("accuracy refresh failed", e); }
+                  b.dataset.busy = "0"; b.textContent = "↻ Refresh accuracy"; b.style.opacity = "1";
+                }}
+                style={{ fontSize: 11, color: "var(--text-2)", background: "var(--surface)",
+                    border: "1px solid var(--border)", borderRadius: "var(--r-sm)",
+                    padding: "4px 10px", cursor: "pointer" }}
+                title="Recompute BN=BB and decider accuracy from your verified clips. Saved on this device.">
+                ↻ Refresh accuracy
+              </button>
             </div>
             {allSeenSpecies.length === 0 ? (
               <div style={{ fontSize: 14, color: "var(--text-2)",
