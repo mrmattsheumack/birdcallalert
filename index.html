@@ -2812,6 +2812,10 @@ function App() {
   // Maps id -> expiry timestamp. fetchLive keeps these hidden until the
   // server catches up, so a poll mid-PATCH can't resurrect a handled card.
   const pendingDismissRef = useRef(new Map());
+  // v6.47: tracks newest created_at already loaded. null = do a full 48h
+  // pull; otherwise the live timer fetches only rows newer than this,
+  // slashing egress. Reset to null to force a full reload.
+  const newestSeenRef = useRef(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [lastFetch, setLastFetch] = useState(null);
@@ -2996,15 +3000,18 @@ function App() {
       // v5.7.4: extended live window from 24h to 48h to give the user
       // more time to review before clips drop into History.
       const cutoff = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
-      // v6.30: paginate the live window so a busy 48h is never truncated.
-      // (Was a single limit=500 request, which silently dropped the older
-      // clips before their 48h was up on high-traffic days.)
       const PAGE = 1000;
+      // v6.47: incremental fetch. First load (newestSeenRef null) pulls the
+      // full 48h; the 20s timer thereafter fetches ONLY rows newer than the
+      // newest already held, cutting egress ~90%. A full pull merges by
+      // replacing; an incremental pull merges new rows into existing state.
+      const incremental = newestSeenRef.current != null;
+      const sinceTs = incremental ? newestSeenRef.current : cutoff;
       let data = [];
       for (let _off = 0; _off < 20000; _off += PAGE) {
         const r = await fetch(
           `${SUPA_URL}/rest/v1/candidate_sightings?source=eq.bird_detection`
-            + `&created_at=gte.${encodeURIComponent(cutoff)}`
+            + `&created_at=gt.${encodeURIComponent(sinceTs)}`
             + `&order=created_at.desc&limit=${PAGE}&offset=${_off}`,
           { headers: SUPA_HEADERS }
         );
@@ -3016,6 +3023,14 @@ function App() {
         data = data.concat(_page || []);
         if (!_page || _page.length < PAGE) break;
       }
+      // Advance the high-water mark to the newest row we just saw.
+      if (data.length > 0) {
+        const maxTs = data.reduce((m, row) => (row.created_at > m ? row.created_at : m), newestSeenRef.current || "");
+        newestSeenRef.current = maxTs;
+      } else if (!incremental) {
+        // Full pull returned nothing: still mark so we go incremental next time.
+        newestSeenRef.current = cutoff;
+      }
       // reappear-fix: honour locally-pending dismissals. Prune expired
       // entries and any the server now agrees are dismissed.
       {
@@ -3024,14 +3039,31 @@ function App() {
         for (const [pid, exp] of Array.from(pend.entries())) {
           if (exp < tnow) pend.delete(pid);
         }
-        const rows = (data || []).map(row => {
+        const mapDismiss = (row) => {
           if (pend.has(row.id)) {
             if (row.dismissed) { pend.delete(row.id); return row; }
             return { ...row, dismissed: true };
           }
           return row;
-        });
-        setDetections(rows);
+        };
+        const freshCutoff = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
+        if (incremental) {
+          if (data.length > 0) {
+            const newRows = data.map(mapDismiss);
+            setDetections(prev => {
+              const byId = new Map();
+              for (const row of newRows) byId.set(row.id, row);
+              for (const row of (prev || [])) if (!byId.has(row.id)) byId.set(row.id, row);
+              return Array.from(byId.values())
+                .filter(row => (row.created_at || "") >= freshCutoff)
+                .sort((a, b) => (b.created_at || "").localeCompare(a.created_at || ""));
+            });
+          }
+          // no new rows: leave state untouched (no egress, no re-render churn)
+        } else {
+          const rows = (data || []).map(mapDismiss);
+          setDetections(rows);
+        }
       }
       setLastFetch(new Date());
       setError(null);
