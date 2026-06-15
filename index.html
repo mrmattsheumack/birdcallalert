@@ -4091,14 +4091,6 @@ function App() {
             <span>🗂 Cleared detections</span>
           </div>
         )}
-      </header>
-
-      {/* Live feed or History view */}
-      <main style={{ padding: "8px 14px 80px", maxWidth: 600, margin: "0 auto" }}>
-
-        {/* ─── LIVE VIEW ─────────────────────────────────────────────── */}
-        {viewMode === "live" && (
-          <>
             {/* v6.34: model accuracy indicator (vote recall, all-time + 7d) */}
             {_modelAcc && _modelAcc.all.total > 0 && (() => {
               const pct = (h, t) => t > 0 ? Math.round(h / t * 100) + "%" : "n/a";
@@ -4283,6 +4275,15 @@ function App() {
                   </button>
                 );
               })}
+
+      </header>
+
+      {/* Live feed or History view */}
+      <main style={{ padding: "8px 14px 80px", maxWidth: 600, margin: "0 auto" }}>
+
+        {/* ─── LIVE VIEW ─────────────────────────────────────────────── */}
+        {viewMode === "live" && (
+          <>
             </div>
 
             {/* v5.4: Status filter chips. Single-select: shows only cards in
