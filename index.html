@@ -4081,31 +4081,6 @@ function App() {
           </button>
           );
         })()}
-        {/* v6.48: compact accuracy readout, lives in the sticky header so it
-            stays pinned while the feed scrolls. */}
-        {viewMode === "live" && _modelAcc && _modelAcc.all.total > 0 && (() => {
-          const pct = (h, t) => t > 0 ? Math.round(h / t * 100) + "%" : "n/a";
-          const A = _modelAcc.all, R = _modelAcc.rec, D = _modelAcc.day || { total: 0, bn: 0, bb: 0, decT: 0, decH: 0 };
-          const row = { display: "flex", gap: 6, alignItems: "baseline", fontVariantNumeric: "tabular-nums", lineHeight: 1.35 };
-          const tag = { fontSize: 10, color: "var(--text-3)", minWidth: 26, flexShrink: 0 };
-          const val = { fontSize: 11, color: "var(--text-2)" };
-          return (
-            <div style={{ marginTop: 8 }}>
-              <div style={row}>
-                <span style={tag}>all</span>
-                <span style={val}>BN {pct(A.bn, A.total)} · BB {pct(A.bb, A.total)} · DEC {pct(A.decH, A.decT)}</span>
-              </div>
-              <div style={{ ...row, marginTop: 1 }}>
-                <span style={tag}>7d</span>
-                <span style={val}>{R.total > 0 ? `BN ${pct(R.bn, R.total)} · BB ${pct(R.bb, R.total)} · DEC ${pct(R.decH, R.decT)}` : "no recent votes"}</span>
-              </div>
-              <div style={{ ...row, marginTop: 1 }}>
-                <span style={tag}>24h</span>
-                <span style={val}>{D.total > 0 ? `BN ${pct(D.bn, D.total)} · BB ${pct(D.bb, D.total)} · DEC ${pct(D.decH, D.decT)}` : "no votes today"}</span>
-              </div>
-            </div>
-          );
-        })()}
         {viewMode === "history" && (
           <div style={{
             display: "inline-flex", alignItems: "center", gap: 6, marginTop: 10,
@@ -4124,6 +4099,191 @@ function App() {
         {/* ─── LIVE VIEW ─────────────────────────────────────────────── */}
         {viewMode === "live" && (
           <>
+            {/* v6.34: model accuracy indicator (vote recall, all-time + 7d) */}
+            {_modelAcc && _modelAcc.all.total > 0 && (() => {
+              const pct = (h, t) => t > 0 ? Math.round(h / t * 100) + "%" : "n/a";
+              const A = _modelAcc.all, R = _modelAcc.rec, D = _modelAcc.day || { total: 0, bn: 0, bb: 0, decT: 0, decH: 0 };
+              const rowStyle = { display: "flex", gap: 10, alignItems: "baseline", fontVariantNumeric: "tabular-nums" };
+              const tag = { fontSize: 11, color: "var(--text-3)", minWidth: 56 };
+              const val = { fontSize: 12, color: "var(--text-2)" };
+              return (
+                <div style={{
+                  margin: "0 0 12px", padding: "10px 14px",
+                  background: "var(--surface)", border: "1px solid var(--border)",
+                  borderRadius: "var(--r-md)",
+                }}>
+                  <div style={{ fontSize: 11, color: "var(--text-3)", marginBottom: 6, textTransform: "uppercase", letterSpacing: 0.4 }}>
+                    Model accuracy · vote recall
+                  </div>
+                  <div style={rowStyle}>
+                    <span style={tag}>all-time</span>
+                    <span style={val}>BN {pct(A.bn, A.total)} · BB {pct(A.bb, A.total)} · DEC {pct(A.decH, A.decT)}</span>
+                  </div>
+                  <div style={{ ...rowStyle, marginTop: 2 }}>
+                    <span style={tag}>last 7d</span>
+                    <span style={val}>{R.total > 0 ? `BN ${pct(R.bn, R.total)} · BB ${pct(R.bb, R.total)} · DEC ${pct(R.decH, R.decT)}` : "no recent votes"}</span>
+                  </div>
+                  <div style={{ ...rowStyle, marginTop: 2 }}>
+                    <span style={tag}>last 24h</span>
+                    <span style={val}>{D.total > 0 ? `BN ${pct(D.bn, D.total)} · BB ${pct(D.bb, D.total)} · DEC ${pct(D.decH, D.decT)}` : "no votes today"}</span>
+                  </div>
+                </div>
+              );
+            })()}
+            {/* Empty state - no detections in the live 24h window */}
+            {!loading && detections.length === 0 && !error && (
+              <div style={{
+                textAlign: "center", padding: "60px 20px",
+                color: "var(--text-2)",
+              }}>
+                <div style={{ fontSize: 56, marginBottom: 16, opacity: 0.4 }}>🎤</div>
+                <h2 style={{ fontSize: 18, fontWeight: 600, color: "var(--text)", marginBottom: 8 }}>
+                  Listening for birds
+                </h2>
+                <p style={{ fontSize: 14, lineHeight: 1.5, maxWidth: 320, margin: "0 auto" }}>
+                  Nothing detected in the last 24 hours. New detections appear here;
+                  older ones live in History.
+                </p>
+                <button onClick={() => setViewMode("history")} style={{
+                  marginTop: 16, padding: "8px 14px",
+                  background: "transparent", color: "var(--primary)",
+                  border: "1px solid var(--border)", borderRadius: "var(--r-md)",
+                  fontSize: 13, fontWeight: 600, cursor: "pointer",
+                }}>Open History</button>
+              </div>
+            )}
+
+            {/* Filtered-out notice */}
+            {!loading && detections.length > 0 && liveItems.length === 0 && (
+              <div style={{
+                textAlign: "center", padding: "40px 20px", color: "var(--text-2)",
+              }}>
+                <div style={{ fontSize: 36, marginBottom: 12, opacity: 0.4 }}>🔍</div>
+                <p style={{ fontSize: 15, marginBottom: 16 }}>
+                  {hiddenByFilter > 0
+                    ? `${hiddenByFilter} detection${hiddenByFilter === 1 ? "" : "s"} hidden by current filter.`
+                    : "Nothing to show. New detections will appear here."}
+                </p>
+                {hiddenByFilter > 0 && (
+                  <button onClick={() => setSettingsOpen(true)} style={{
+                    padding: "10px 16px", background: "var(--primary)", color: "#fff",
+                    border: "none", borderRadius: "var(--r-md)", fontSize: 14,
+                    fontWeight: 600, cursor: "pointer",
+                  }}>Adjust filter</button>
+                )}
+              </div>
+            )}
+
+            {/* v5.4.3: Alert count header, centered above the first tile.
+                Updates live as user actions cards (since liveItems is reactive). */}
+            {liveItems.length > 0 && (
+              <div style={{
+                textAlign: "center",
+                padding: "12px 0 4px",
+                fontSize: 13,
+                fontWeight: 600,
+                color: "var(--text-2)",
+                letterSpacing: 0.3,
+              }}>
+                {liveItems.length > 50
+                  ? `Showing 50 of ${liveItems.length} alerts`
+                  : `${liveItems.length} alert${liveItems.length === 1 ? "" : "s"}`}
+                {" "}
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setLiveSortDir(liveSortDir === "desc" ? "asc" : "desc");
+                  }}
+                  title={liveSortDir === "desc" ? "Switch to oldest first" : "Switch to newest first"}
+                  style={{
+                    marginLeft: 8, padding: "2px 8px", fontSize: 11,
+                    background: "var(--surface-2)",
+                    border: "1px solid var(--border)",
+                    borderRadius: 999,
+                    color: "var(--text-2)",
+                    cursor: "pointer",
+                    fontFamily: "inherit",
+                  }}
+                >
+                  {liveSortDir === "desc" ? "Newest ↓" : "Oldest ↑"}
+                </button>
+              </div>
+            )}
+
+            {/* Detection list */}
+            {liveItems.length > 0 && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 8 }}>
+                {liveItems.slice(0, 50).map(d => (
+                  <DetectionCard
+                    key={d.id} d={d}
+                    expanded={expandedId === d.id}
+                    onToggle={() => setExpandedId(expandedId === d.id ? null : d.id)}
+                    onDismiss={() => setDismissed(d.id, true)}
+                    onConfirm={setConfirmed}
+                    onSetSwapVerdict={setSwapVerdict}
+                    mode="live"
+                    classification={getClassification(birdLabel(d), classifications)}
+                    onSetClassification={(label, state) => {
+                      setClassifications(prev => ({ ...prev, [classificationKey(label)]: state }));
+                    }}
+                    onSetManualLabel={setManualLabel}
+                    corpusCount={corpusCountFor(d)}
+                    labelSuggestions={labelSuggestions}
+                  />
+                ))}
+                {liveItems.length > 50 && (
+                  <div style={{ textAlign: "center", padding: 12,
+                      fontSize: 12, color: "var(--text-3)" }}>
+                    Showing latest 50 of {liveItems.length}
+                  </div>
+                )}
+              </div>
+            )}
+          </>
+        )}
+
+        {/* ─── HISTORY VIEW ──────────────────────────────────────────── */}
+        {viewMode === "history" && (
+          <>
+            {/* Classification filter chips. Toggle which states are shown
+                across all buckets. Muted is excluded by design. */}
+            <div style={{
+              display: "flex", gap: 6, marginTop: 8, marginBottom: 8,
+              flexWrap: "wrap",
+            }}>
+              <span style={{
+                alignSelf: "center", fontSize: 11, color: "var(--text-3)",
+                fontWeight: 600, letterSpacing: 0.5, textTransform: "uppercase",
+                marginRight: 4,
+              }}>Show</span>
+              {[
+                { key: "priority", icon: "⭐", label: "Priority", color: "var(--accent)" },
+                { key: "suspect",  icon: "⚠️", label: "Suspect",  color: "#ca8a04" },
+                { key: "normal",   icon: "○",  label: "Normal",   color: "var(--text-2)" },
+                { key: "muted",    icon: "🔇", label: "Muted",    color: "#6b7280" },
+              ].map(c => {
+                const active = historyClsFilter[c.key];
+                return (
+                  <button key={c.key}
+                    onClick={() => setHistoryClsFilter(prev => ({
+                      ...prev, [c.key]: !prev[c.key]
+                    }))}
+                    style={{
+                      display: "inline-flex", alignItems: "center", gap: 5,
+                      padding: "5px 11px", borderRadius: 999,
+                      background: active ? c.color : "var(--surface)",
+                      color: active ? "#fff" : "var(--text-2)",
+                      border: "1px solid " + (active ? c.color : "var(--border)"),
+                      fontSize: 12, fontWeight: 600, cursor: "pointer",
+                      opacity: active ? 1 : 0.7,
+                    }}>
+                    <span>{c.icon}</span>
+                    <span>{c.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+
             {/* v5.4: Status filter chips. Single-select: shows only cards in
                 the chosen badge state. "All" returns to showing everything. */}
             <div style={{
