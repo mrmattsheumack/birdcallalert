@@ -4103,28 +4103,29 @@ function App() {
             {_modelAcc && _modelAcc.all.total > 0 && (() => {
               const pct = (h, t) => t > 0 ? Math.round(h / t * 100) + "%" : "n/a";
               const A = _modelAcc.all, R = _modelAcc.rec, D = _modelAcc.day || { total: 0, bn: 0, bb: 0, decT: 0, decH: 0 };
-              const rowStyle = { display: "flex", gap: 10, alignItems: "baseline", fontVariantNumeric: "tabular-nums" };
-              const tag = { fontSize: 11, color: "var(--text-3)", minWidth: 56 };
-              const val = { fontSize: 12, color: "var(--text-2)" };
+              // v6.48: compact sticky accuracy strip, pinned under the header.
+              const rowStyle = { display: "flex", gap: 6, alignItems: "baseline", fontVariantNumeric: "tabular-nums", lineHeight: 1.3 };
+              const tag = { fontSize: 10, color: "var(--text-3)", minWidth: 40, flexShrink: 0 };
+              const val = { fontSize: 11, color: "var(--text-2)" };
               return (
                 <div style={{
-                  margin: "0 0 12px", padding: "10px 14px",
-                  background: "var(--surface)", border: "1px solid var(--border)",
+                  position: "sticky", top: "var(--acc-top, 64px)", zIndex: 90,
+                  margin: "0 0 8px", padding: "6px 12px",
+                  background: "rgba(247, 245, 240, 0.96)",
+                  backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)",
+                  border: "1px solid var(--border)",
                   borderRadius: "var(--r-md)",
                 }}>
-                  <div style={{ fontSize: 11, color: "var(--text-3)", marginBottom: 6, textTransform: "uppercase", letterSpacing: 0.4 }}>
-                    Model accuracy · vote recall
-                  </div>
                   <div style={rowStyle}>
-                    <span style={tag}>all-time</span>
+                    <span style={tag}>all</span>
                     <span style={val}>BN {pct(A.bn, A.total)} · BB {pct(A.bb, A.total)} · DEC {pct(A.decH, A.decT)}</span>
                   </div>
-                  <div style={{ ...rowStyle, marginTop: 2 }}>
-                    <span style={tag}>last 7d</span>
+                  <div style={{ ...rowStyle, marginTop: 1 }}>
+                    <span style={tag}>7d</span>
                     <span style={val}>{R.total > 0 ? `BN ${pct(R.bn, R.total)} · BB ${pct(R.bb, R.total)} · DEC ${pct(R.decH, R.decT)}` : "no recent votes"}</span>
                   </div>
-                  <div style={{ ...rowStyle, marginTop: 2 }}>
-                    <span style={tag}>last 24h</span>
+                  <div style={{ ...rowStyle, marginTop: 1 }}>
+                    <span style={tag}>24h</span>
                     <span style={val}>{D.total > 0 ? `BN ${pct(D.bn, D.total)} · BB ${pct(D.bb, D.total)} · DEC ${pct(D.decH, D.decT)}` : "no votes today"}</span>
                   </div>
                 </div>
