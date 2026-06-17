@@ -296,8 +296,9 @@ const CLASSIFICATIONS = {
 
 // View filter for the live feed.
 const VIEW_FILTERS = {
-  all:      { label: "All", icon: "🐦" },
-  priority: { label: "Priority only", icon: "⭐" },
+  all:         { label: "All", icon: "🐦" },
+  unconfirmed: { label: "Unconfirmed", icon: "🔵" },
+  priority:    { label: "Priority only", icon: "⭐" },
 };
 
 // Notification mode.
@@ -3296,6 +3297,9 @@ function App() {
       // named species (e.g. BirdNET's guess) is muted.
       if (isMuted(d, classifications)) return false;
       if (viewFilter === "priority" && isSuspect(d, classifications) && !isPriority(d, classifications)) return false;
+      // v6.50: "Unconfirmed" filter hides anything already confirmed (auto or
+      // manual), so the live view shows only alerts still needing a look.
+      if (viewFilter === "unconfirmed" && isConfirmed(d)) return false;
       return true;
     });
     // v6.1: when sort is "asc" (oldest first), pure chronological - ignore
