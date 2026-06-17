@@ -2745,6 +2745,68 @@ function DetectionCard({ d, expanded, onToggle, onDismiss, onRestore, mode,
 }
 
 // ─── Main app ───────────────────────────────────────────────────────
+function LiveListenButton() {
+  // v6.49: on-demand live mic stream from the Pi. Streams direct via the
+  // Tailscale audio base (NOT Supabase), so it costs zero Supabase egress.
+  // The Pi /listen route kills arecord+ffmpeg on disconnect; here we always
+  // disconnect: on stop, on unmount, on tab hide/close.
+  const [listening, setListening] = React.useState(false);
+  const [status, setStatus] = React.useState("idle");
+  const audioRef = React.useRef(null);
+
+  const stop = React.useCallback(() => {
+    const a = audioRef.current;
+    if (a) {
+      try { a.pause(); } catch (e) {}
+      try { a.removeAttribute("src"); a.load(); } catch (e) {}
+    }
+    setListening(false);
+    setStatus("idle");
+  }, []);
+
+  const start = React.useCallback(() => {
+    setStatus("connecting");
+    setListening(true);
+    let a = audioRef.current;
+    if (!a) {
+      a = new Audio();
+      a.preload = "none";
+      audioRef.current = a;
+    }
+    a.onplaying = () => setStatus("playing");
+    a.onerror = () => { setStatus("error"); setListening(false); };
+    a.src = PI_AUDIO_BASE + "/listen?token=" + encodeURIComponent(PI_TRIM_TOKEN) + "&t=" + Date.now();
+    const p = a.play();
+    if (p && p.catch) p.catch(() => { setStatus("error"); setListening(false); });
+  }, []);
+
+  React.useEffect(() => {
+    const onHide = () => { if (document.visibilityState === "hidden") stop(); };
+    window.addEventListener("pagehide", stop);
+    document.addEventListener("visibilitychange", onHide);
+    return () => {
+      window.removeEventListener("pagehide", stop);
+      document.removeEventListener("visibilitychange", onHide);
+      stop();
+    };
+  }, [stop]);
+
+  const label = status === "connecting" ? "..." : (listening ? "\u23F9" : "\uD83D\uDD0A");
+  const title = listening ? "Stop listening" : "Listen live to the garden";
+  return (
+    <button onClick={() => (listening ? stop() : start())}
+      aria-label={title} title={title}
+      style={{
+        width: 40, height: 40, borderRadius: "50%",
+        background: listening ? "var(--primary)" : "var(--surface)",
+        color: listening ? "#fff" : "var(--text-2)",
+        fontSize: 18, cursor: "pointer",
+        display: "flex", alignItems: "center", justifyContent: "center",
+        border: "1px solid var(--border)",
+      }}>{label}</button>
+  );
+}
+
 function App() {
   const [detections, setDetections] = useState([]);
   // v6.34: live model-accuracy indicator (pooled vote recall over ground-truth
@@ -4037,6 +4099,8 @@ function App() {
                 display: "flex", alignItems: "center", justifyContent: "center",
                 border: "1px solid " + (viewMode === "history" ? "var(--primary)" : "var(--border)"),
               }}>{viewMode === "history" ? "←" : "🗂"}</button>
+            {/* v6.49: live-listen toggle */}
+            <LiveListenButton />
             {/* v6.8: Corpus sheet trigger */}
             <button onClick={() => setCorpusOpen(true)} aria-label="Training corpus"
               title="Training corpus"
