@@ -2814,6 +2814,66 @@ function App() {
   // rows, all-time and last 7 days). Fetched once on mount, same definition as
   // the per-species view: BN/BB scored over all truth rows, DEC only where the
   // decider spoke. Canonicalised both sides so sub-species pool correctly.
+  // v6.51: master list of EVERY species ever detected or suggested,
+  // fetched once on mount. Decouples the Settings species list from the
+  // 48h live window AND from classification, so removing priority (or any
+  // classification) never drops a species row. Egress-safe: pulls only the
+  // three species-bearing columns, bounded, deduped client-side.
+  const [_allSeenSpecies, _setAllSeenSpecies] = useState([]);
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const seen = new Map();  // canonical-key -> { label, common, scientific }
+        let from = 0;
+        const page = 1000;
+        // Bounded pagination: cap at a few pages so we never pull the whole
+        // table unbounded. Distinct species saturate quickly anyway.
+        for (let pageIdx = 0; pageIdx < 8; pageIdx++) {
+          const r = await fetch(
+            `${SUPA_URL}/rest/v1/candidate_sightings`
+              + `?select=species_guess,species_truth,metadata`
+              + `&order=created_at.desc`,
+            {
+              headers: {
+                apikey: SUPA_KEY,
+                Authorization: `Bearer ${SUPA_KEY}`,
+                Range: `${from}-${from + page - 1}`,
+              },
+            }
+          );
+          if (!r.ok) break;
+          const rows = await r.json();
+          if (!Array.isArray(rows) || rows.length === 0) break;
+          for (const d of rows) {
+            const md = d.metadata || {};
+            const truthRaw = d.species_truth
+              || md.manual_label
+              || (md.confirmed === true ? d.species_guess : null);
+            const corrected = truthRaw ? canonicaliseSpeciesLabel(truthRaw) : null;
+            const canonGuess = canonicaliseSpeciesLabel(d.species_guess);
+            const label = corrected || canonGuess;
+            if (!label) continue;
+            const k = String(canonicaliseSpeciesLabel(label) || '').toLowerCase().trim();
+            if (!k || seen.has(k)) continue;
+            seen.set(k, {
+              label,
+              common: corrected || canonGuess,
+              scientific: corrected ? null : (md.scientific_name || null),
+            });
+          }
+          if (rows.length < page) break;
+          from += page;
+        }
+        if (alive) _setAllSeenSpecies([...seen.values()]);
+      } catch (e) {
+        // Non-fatal: Settings just falls back to window+classified species.
+        console.warn('all-seen-species fetch failed:', e);
+      }
+    })();
+    return () => { alive = false; };
+  }, []);
+
   const [_modelAcc, _setModelAcc] = useState(null);
   useEffect(() => {
     let alive = true;
@@ -3620,11 +3680,27 @@ function App() {
         maxConf: 0,
       });
     }
+    // v6.51: third pass - fold in EVERY species ever seen (all-time fetch)
+    // that is not already present from the window or classification passes.
+    // This makes the Settings list independent of the 48h window and of
+    // classification, so removing priority never drops a species row.
+    for (const sp of (_allSeenSpecies || [])) {
+      const _ck = String(canonicaliseSpeciesLabel(sp.label) || '').toLowerCase().trim();
+      if (!_ck || m.has(_ck)) continue;
+      m.set(_ck, {
+        label: sp.label,
+        common: sp.common || sp.label,
+        scientific: sp.scientific || null,
+        count: 0,
+        latestTs: 0,
+        maxConf: 0,
+      });
+    }
     // Add lastSeen as ISO string for easy display, sorted by recency
     return [...m.values()]
       .map(e => ({ ...e, lastSeen: e.latestTs ? new Date(e.latestTs).toISOString() : null }))
       .sort((a, b) => b.latestTs - a.latestTs);
-  }, [detections, classifications]);
+  }, [detections, classifications, _allSeenSpecies]);
 
   // v5.4.2: deduped label suggestions for the manual_label input autocomplete.
   // Combines two sources:
