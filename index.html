@@ -783,11 +783,28 @@ const LABEL_CONSOLIDATION_REMAP = {
   "australian raven":  "Raven",
   "forest raven":      "Raven",
   "little raven":      "Raven",
+  // v6.52: collapse Willie Wagtail spelling variants (space vs hyphen)
+  // into one row. Both forms exist in historic data.
+  "willie wagtail":    "Willie Wagtail",
+  "willie-wagtail":    "Willie Wagtail",
   // v6.7: also collapse the canonical lowercase forms (BB output) so
   // they merge with the Title Case variants in the picker/history filter.
   "wattlebird":        "Wattlebird",
   "raven":             "Raven",
 };
+
+// v6.52: labels that are NOT real single species (multi-bird annotations
+// the user typed). They live in the DB but must never render as Settings
+// rows. Matched on a normalised key. Data is untouched - hide only.
+const SETTINGS_HIDE_LABELS = new Set([
+  "noisy miner (mob)",
+  "nm+crow",
+]);
+function _isHiddenSettingsLabel(raw) {
+  if (!raw) return false;
+  const k = String(raw).toLowerCase().replace(/\s+/g, " ").trim();
+  return SETTINGS_HIDE_LABELS.has(k);
+}
 
 // Apply consolidation: returns the consolidated pretty form for known
 // species, or the original label unchanged. Case-insensitive matching.
@@ -2847,6 +2864,9 @@ function App() {
           if (!Array.isArray(rows) || rows.length === 0) break;
           for (const d of rows) {
             const md = d.metadata || {};
+            if (_isHiddenSettingsLabel(d.species_guess)
+                || _isHiddenSettingsLabel(d.species_truth)
+                || _isHiddenSettingsLabel((d.metadata || {}).manual_label)) continue;
             const truthRaw = d.species_truth
               || md.manual_label
               || (md.confirmed === true ? d.species_guess : null);
@@ -3638,6 +3658,9 @@ function App() {
       // birdLabel(d) is kept as a last-resort fallback for edge cases.
       const _canonGuess = canonicaliseSpeciesLabel(d.species_guess);
       const label = corrected || _canonGuess || canonicaliseSpeciesLabel(birdLabel(d));
+      if (_isHiddenSettingsLabel(d.species_guess)
+          || _isHiddenSettingsLabel(d.species_truth)
+          || _isHiddenSettingsLabel(md.manual_label)) continue;
       const displayCommon = corrected || canonicaliseSpeciesLabel(d.species_guess);
       // v6.35: de-dupe Settings rows by a case-normalised key so naming
       // variants that canonicalise to the same species but differ in case
