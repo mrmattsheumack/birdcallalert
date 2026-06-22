@@ -597,7 +597,7 @@ async function refreshAccuracySnapshots() {
     let v = String(canonicaliseSpeciesLabel(x) || "").toLowerCase().trim();
     return v;
   };
-  const titleOf = (k) => canonicaliseSpeciesLabel(k);
+  const titleOf = (k) => classificationKey(k);
   const dec = {}; const agree = {};
   let off = 0;
   while (off < 20000) {
