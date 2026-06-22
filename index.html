@@ -857,6 +857,11 @@ function canonicaliseSpeciesLabel(s) {
   if (/^[a-z]+$/.test(trimmed)) {
     return trimmed[0].toUpperCase() + trimmed.slice(1);
   }
+  // v6.53: multi-word all-lowercase with spaces (e.g. "common myna") -
+  // Title Case each word so it matches the display label the toggle reads.
+  if (/^[a-z]+( [a-z]+)+$/.test(trimmed)) {
+    return trimmed.split(" ").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
+  }
   const isSlug = (
     trimmed === trimmed.toLowerCase() &&
     trimmed.indexOf("-") !== -1 &&
@@ -891,6 +896,11 @@ function canonicaliseForWrite(s) {
   // Catches BB slugs like "polly", "wattlebird", "raven", "cricket".
   if (/^[a-z]+$/.test(trimmed)) {
     return trimmed[0].toUpperCase() + trimmed.slice(1);
+  }
+  // v6.53: multi-word all-lowercase with spaces (e.g. "common myna") -
+  // Title Case each word so it matches the display label the toggle reads.
+  if (/^[a-z]+( [a-z]+)+$/.test(trimmed)) {
+    return trimmed.split(" ").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
   }
   const isSlug = (
     trimmed === trimmed.toLowerCase() &&
