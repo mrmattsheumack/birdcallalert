@@ -3044,6 +3044,40 @@ function App() {
     });
   }, []);
 
+  // v6.54: hydrate the BN=BB auto-confirm list FROM the Pi config on mount so
+  // the server (pi_config) is the source of truth. Without this, a device with
+  // a stale/empty local list would overwrite the server list on the next
+  // toggle (clobbering other species). We MERGE server + local so no device
+  // loses entries, then persist + re-sync the union.
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const r = await fetch(
+          `${SUPA_URL}/rest/v1/pi_config?key=eq.autoconfirm_species&select=value`,
+          { headers: SUPA_HEADERS }
+        );
+        if (!r.ok) return;
+        const rows = await r.json();
+        const serverList = (rows && rows[0] && Array.isArray(rows[0].value)) ? rows[0].value : [];
+        if (!alive || serverList.length === 0) return;
+        setAutoConfirmState(prev => {
+          const merged = { ...prev };
+          for (const sp of serverList) {
+            const k = classificationKey(sp);
+            if (k) merged[k] = true;
+          }
+          saveAutoConfirm(merged);
+          syncAutoConfirmToServer(merged);
+          return merged;
+        });
+      } catch (e) {
+        console.warn("auto-confirm hydrate failed:", e);
+      }
+    })();
+    return () => { alive = false; };
+  }, []);
+
   // v6.45: decider-based auto-confirm state. {canonLabel: true} for species
   // the Pi should auto-confirm when the DECIDER names them. Separate from the
   // BN=BB list above. Synced to pi_config (decider_autoconfirm_species).
