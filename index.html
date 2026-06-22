@@ -3282,8 +3282,8 @@ function App() {
             const _decSp = classificationSpecies(newest);
             const _trigSp = priorityTrigger(newest, cls_now);
             const _notifTitle = (_trigSp && _trigSp !== _decSp)
-              ? `🐦 ${_decSp} or ${_trigSp}`
-              : `🐦 ${_decSp}`;
+              ? `🐦 ${_trigSp} or ${_decSp}`
+              : `🐦 ${_trigSp || _decSp}`;
             const _notifBody = `Detected nearby · ${Math.round((newest.confidence || 0) * 100)}% confidence`;
             showBirdNotif(_notifTitle, _notifBody, "bird-detection");
             lastNotifId.current = newest.id;
