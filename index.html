@@ -2915,6 +2915,7 @@ function App() {
             `${SUPA_URL}/rest/v1/candidate_sightings`
               + `?or=(verdict_source.eq.user,metadata->>confirmed.eq.true)`
               + `&select=species_truth,decider_species,bb_species,species_guess,metadata,created_at`
+              + `&order=created_at.desc`
               + `&limit=${PAGE}&offset=${off}`,
             { headers: SUPA_HEADERS }
           );
