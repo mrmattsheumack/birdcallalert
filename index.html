@@ -859,7 +859,7 @@ function canonicaliseSpeciesLabel(s) {
   }
   // v6.53: multi-word all-lowercase with spaces (e.g. "common myna") -
   // Title Case each word so it matches the display label the toggle reads.
-  if (/^[a-z]+( [a-z]+)+$/.test(trimmed)) {
+  if (/^[a-z]+([ -][a-z]+)+$/.test(trimmed) && trimmed.indexOf(" ") !== -1) {
     return trimmed.split(" ").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
   }
   const isSlug = (
@@ -899,7 +899,7 @@ function canonicaliseForWrite(s) {
   }
   // v6.53: multi-word all-lowercase with spaces (e.g. "common myna") -
   // Title Case each word so it matches the display label the toggle reads.
-  if (/^[a-z]+( [a-z]+)+$/.test(trimmed)) {
+  if (/^[a-z]+([ -][a-z]+)+$/.test(trimmed) && trimmed.indexOf(" ") !== -1) {
     return trimmed.split(" ").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
   }
   const isSlug = (
