@@ -192,7 +192,7 @@ function HistoryCorpusList({ species, label }) {
 // ─── App version ────────────────────────────────────────────────────
 // Bump on every deploy. Visible in the footer so we know which build is
 // running when investigating bug reports or screenshots.
-const APP_VERSION = "v6.54";
+const APP_VERSION = "v6.55";
 const APP_VERSION_DATE = "2026-07-05";
 
 // ─── v5.8.0: Service Worker registration ──────────────────────────────
@@ -2836,12 +2836,14 @@ function LiveListenButton() {
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// v6.54: Briefing view — deterministic daily/weekly summary + prediction.
+// v6.55: Briefing view — deterministic daily/weekly summary + prediction.
 // Reliability from votes (species_truth) > decider verdict > BN=BB agreement.
-// Introduced species excluded from focus; chronic BirdNET errors
-// (BIRDNET_REMAPS + never-corroborated) auto-scrutinised; priority + new
-// species centred; raptor mobbing-chorus logic. Egress-light: reuses the
-// in-memory 48h feed for "today" and fetches a wider window once (session cache).
+// Excludes introduced + umbrella labels (Polly/Cricket/Not-bird) from focus,
+// auto-scrutinises chronic BirdNET errors, centres priority + new species,
+// raptor watch (mob chorus + standalone sustained noisy-miner alarm),
+// species-by-time heatmaps, and week-species predictions with an Open-Meteo
+// forecast for Dromana. Egress-light: reuses the 48h feed and caches a wider
+// window in the session.
 // ═══════════════════════════════════════════════════════════════════
 const BRIEF_INTRODUCED = new Set([
   "Common Myna","Eurasian Blackbird","Common Blackbird","Spotted Dove",
@@ -2850,6 +2852,8 @@ const BRIEF_INTRODUCED = new Set([
   "Eurasian Skylark","Song Thrush","Nutmeg Mannikin","Scaly-breasted Munia",
   "Mallard","Domestic Duck",
 ]);
+// Not real wild-bird species to report on: pet + umbrella/junk classes.
+const BRIEF_UMBRELLA = new Set(["Polly","Cricket","Not-bird","Not Bird"]);
 const BRIEF_RAPTORS = new Set([
   "Brown Goshawk","Grey Goshawk","Gray Goshawk","Collared Sparrowhawk",
   "Peregrine Falcon","Brown Falcon","Australian Hobby","Nankeen Kestrel",
@@ -2863,8 +2867,10 @@ const BRIEF_SENTINELS = {
   "Galah": 0.7, "Little Corella": 0.7, "Long-billed Corella": 0.7,
   "Australian Magpie": 0.6, "Magpie-lark": 0.5, "Rainbow Lorikeet": 0.5,
 };
+const BRIEF_DROMANA = { lat: -38.3339, lon: 144.9664 };
 
 function briefCanon(s){ return canonicaliseSpeciesLabel(s) || (s || ""); }
+function briefHidden(name){ return BRIEF_INTRODUCED.has(name) || BRIEF_UMBRELLA.has(name); }
 function briefEffSpecies(d){
   if (d.species_truth){ const c = briefCanon(d.species_truth); if (c) return c; }
   if (d.decider_species){ const c = briefCanon(d.decider_species); if (c) return c; }
@@ -2884,10 +2890,15 @@ function briefWeather(d){
   return (w && typeof w === "object") ? w : null;
 }
 function briefFmtHour(h){ const ap = h < 12 ? "am" : "pm"; let hr = h % 12; if (hr === 0) hr = 12; return hr + ap; }
+function briefShortHour(h){ const ap = h < 12 ? "a" : "p"; let hr = h % 12; if (hr === 0) hr = 12; return hr + ap; }
 function briefFmtClock(ts){
   const d = new Date(ts); let h = d.getHours(); const m = String(d.getMinutes()).padStart(2,"0");
   const ap = h < 12 ? "am" : "pm"; if (h % 12 === 0) h = 12; else h = h % 12;
   return h + ":" + m + ap;
+}
+function briefDayKey(ts){
+  const d = new Date(ts);
+  return d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0") + "-" + String(d.getDate()).padStart(2,"0");
 }
 
 function buildBriefing(rows, classifications, nowMs){
@@ -2897,6 +2908,7 @@ function buildBriefing(rows, classifications, nowMs){
   const weekAgo = startOfToday - 6 * dayMs;
   const priorWeekStart = startOfToday - 13 * dayMs;
   const priorWeekEnd = weekAgo;
+  const scanFrom = nowMs - dayMs;
 
   const todayRows = [], weekRows = [], priorWeekRows = [];
   for (const d of rows){
@@ -2923,6 +2935,9 @@ function buildBriefing(rows, classifications, nowMs){
     const n = bnCounts[canonName] || 0, ok = bnOk[canonName] || 0;
     return n >= 8 && ok === 0;
   }
+  function focusable(name, raw){
+    return name && !briefHidden(name) && !BRIEF_RAPTORS.has(name) && !isChronicError(name, raw);
+  }
 
   function aggregate(list){
     const m = {};
@@ -2938,23 +2953,20 @@ function buildBriefing(rows, classifications, nowMs){
   }
   const todayAgg = aggregate(todayRows), weekAgg = aggregate(weekRows),
         priorAgg = aggregate(priorWeekRows), baseAgg = aggregate(rows);
-  const introduced = (name) => BRIEF_INTRODUCED.has(name);
 
-  const todayActive = Object.values(todayAgg)
-    .filter(e => !introduced(e.name) && !isChronicError(e.name, e.raw) && !BRIEF_RAPTORS.has(e.name))
-    .sort((a, b) => (b.strong - a.strong) || (b.count - a.count))
+  // ---- TODAY: species-by-hour for the heatmap ----
+  const todayHourly = Object.values(todayAgg)
+    .filter(e => focusable(e.name, e.raw))
+    .sort((a, b) => b.count - a.count)
     .slice(0, 8)
-    .map(e => {
-      const wk = weekAgg[e.name] ? weekAgg[e.name].count : 0;
-      const pr = priorAgg[e.name] ? priorAgg[e.name].count : 0;
-      let trend = 0;
-      if (pr > 0) trend = Math.round((wk - pr) / pr * 100); else if (wk > 0) trend = 999;
-      return { name: e.name, count: e.count, strong: e.strong, priority: prioritySet.has(e.name), trend };
-    });
+    .map(e => ({ name: e.name, priority: prioritySet.has(e.name), byHour: e.hours, total: e.count }));
+  let loH = 24, hiH = 0;
+  for (const e of todayHourly) for (const h of Object.keys(e.byHour)){ const hh = +h; if (hh < loH) loH = hh; if (hh > hiH) hiH = hh; }
+  if (loH > hiH){ loH = 6; hiH = Math.max(6, now.getHours()); }
 
   let peakHour = null, peakN = 0; const hourTotals = {};
   for (const d of todayRows){
-    if (introduced(briefEffSpecies(d))) continue;
+    const sp = briefEffSpecies(d); if (!focusable(sp, d.species_guess)) continue;
     const h = new Date(d.created_at).getHours(); hourTotals[h] = (hourTotals[h] || 0) + 1;
     if (hourTotals[h] > peakN){ peakN = hourTotals[h]; peakHour = h; }
   }
@@ -2981,15 +2993,14 @@ function buildBriefing(rows, classifications, nowMs){
     else implication = "Mixed conditions; activity likely moderate.";
     return { label: parts.join(", "), implication };
   }
-  const wxToday = weatherSummary(todayRows);
-  const wxTodayL = wxLabel(wxToday);
+  const wxTodayL = wxLabel(weatherSummary(todayRows));
 
+  // ---- WEEK: text trends ----
   const weekTrends = [];
   const universe = new Set([...Object.keys(weekAgg), ...Object.keys(priorAgg)]);
   for (const name of universe){
-    if (introduced(name) || BRIEF_RAPTORS.has(name)) continue;
     const rawGuess = (weekAgg[name] || priorAgg[name] || {}).raw;
-    if (isChronicError(name, rawGuess)) continue;
+    if (!focusable(name, rawGuess)) continue;
     const wk = weekAgg[name] ? weekAgg[name].count : 0;
     const pr = priorAgg[name] ? priorAgg[name].count : 0;
     if (wk + pr < 6) continue;
@@ -3000,6 +3011,25 @@ function buildBriefing(rows, classifications, nowMs){
   const decreasing = weekTrends.filter(t => t.pct <= -30 && t.pct !== 999).sort((a, b) => a.pct - b.pct).slice(0, 6);
   const wxWeek = weatherSummary(weekRows), wxPrior = weatherSummary(priorWeekRows);
 
+  // ---- WEEK: species-by-day heatmap over last 14 days ----
+  const days = [];
+  for (let i = 13; i >= 0; i--){
+    const dt = new Date(startOfToday - i * dayMs);
+    days.push({ key: briefDayKey(dt.getTime()), label: (dt.getMonth() + 1) + "/" + dt.getDate() });
+  }
+  const twoWeeksAgo = startOfToday - 13 * dayMs;
+  const dayMatrix = {}, weekDailyTotal = {};
+  for (const d of rows){
+    const t = new Date(d.created_at).getTime(); if (t < twoWeeksAgo) continue;
+    const sp = briefEffSpecies(d); if (!focusable(sp, d.species_guess)) continue;
+    const key = briefDayKey(t);
+    if (!dayMatrix[sp]) dayMatrix[sp] = {};
+    dayMatrix[sp][key] = (dayMatrix[sp][key] || 0) + 1;
+    weekDailyTotal[sp] = (weekDailyTotal[sp] || 0) + 1;
+  }
+  const weekNames = Object.keys(weekDailyTotal).sort((a, b) => weekDailyTotal[b] - weekDailyTotal[a]).slice(0, 8);
+
+  // ---- NEW / RARE ----
   const baseBeforeWeek = {};
   for (const d of rows){
     if (new Date(d.created_at).getTime() >= weekAgo) continue;
@@ -3008,7 +3038,7 @@ function buildBriefing(rows, classifications, nowMs){
   }
   const newRare = [];
   for (const name of Object.keys(weekAgg)){
-    if (introduced(name)) continue;
+    if (briefHidden(name)) continue;
     const e = weekAgg[name];
     if (isChronicError(name, e.raw)) continue;
     const before = baseBeforeWeek[name] || 0;
@@ -3017,16 +3047,15 @@ function buildBriefing(rows, classifications, nowMs){
     if (!isNew && !isRare) continue;
     const rm = BIRDNET_REMAPS[e.raw];
     newRare.push({
-      name, count: e.count, strong: e.strong,
-      status: isNew ? "new" : "rare",
-      raptor: BRIEF_RAPTORS.has(name),
-      priority: prioritySet.has(name),
+      name, count: e.count, strong: e.strong, status: isNew ? "new" : "rare",
+      raptor: BRIEF_RAPTORS.has(name), priority: prioritySet.has(name),
       doubt: e.strong === 0,
       note: rm ? ("BirdNET often mislabels this; it may actually be " + rm.primary) : null,
     });
   }
   newRare.sort((a, b) => (b.strong - a.strong) || (b.count - a.count));
 
+  // ---- RAPTORS: direct detections ----
   const raptorDirect = {};
   for (const d of weekRows){
     const sp = briefEffSpecies(d);
@@ -3040,40 +3069,43 @@ function buildBriefing(rows, classifications, nowMs){
   }
   const raptorList = Object.values(raptorDirect).sort((a, b) => b.lastTs - a.lastTs);
 
+  // ---- RAPTORS: baselines (from data older than the 24h scan window) ----
   const binMs = 10 * 60 * 1000;
-  const scanFrom = nowMs - dayMs;
-  const hourBaseline = {};
+  const hourBaseline = {}, minerBaseHour = {};
   {
-    const perBin = {};
+    const perBin = {}, minerBin = {};
     for (const d of rows){
-      const sp = briefEffSpecies(d); if (!(sp in BRIEF_SENTINELS)) continue;
-      const t = new Date(d.created_at).getTime();
-      if (t >= scanFrom) continue;
-      const b = Math.floor(t / binMs) * binMs;
-      if (!perBin[b]) perBin[b] = { count: 0, hour: new Date(b).getHours() };
-      perBin[b].count++;
+      const t = new Date(d.created_at).getTime(); if (t >= scanFrom) continue;
+      const sp = briefEffSpecies(d);
+      if (sp in BRIEF_SENTINELS){
+        const b = Math.floor(t / binMs) * binMs;
+        if (!perBin[b]) perBin[b] = { count: 0, hour: new Date(b).getHours() };
+        perBin[b].count++;
+      }
+      if (sp === "Noisy Miner"){
+        const b = Math.floor(t / binMs) * binMs;
+        if (!minerBin[b]) minerBin[b] = { count: 0, hour: new Date(b).getHours() };
+        minerBin[b].count++;
+      }
     }
-    for (const b of Object.keys(perBin)){
-      const h = perBin[b].hour;
-      if (!hourBaseline[h]) hourBaseline[h] = { sum: 0, bins: 0 };
-      hourBaseline[h].sum += perBin[b].count; hourBaseline[h].bins++;
-    }
+    for (const b of Object.keys(perBin)){ const h = perBin[b].hour; if (!hourBaseline[h]) hourBaseline[h] = { sum: 0, bins: 0 }; hourBaseline[h].sum += perBin[b].count; hourBaseline[h].bins++; }
+    for (const b of Object.keys(minerBin)){ const h = minerBin[b].hour; if (!minerBaseHour[h]) minerBaseHour[h] = { sum: 0, bins: 0 }; minerBaseHour[h].sum += minerBin[b].count; minerBaseHour[h].bins++; }
   }
-  const baselineFor = (hour) => { const hb = hourBaseline[hour]; return (hb && hb.bins) ? hb.sum / hb.bins : 1.5; };
+  const baselineFor = (h) => { const x = hourBaseline[h]; return (x && x.bins) ? x.sum / x.bins : 1.5; };
+  const minerBaselineFor = (h) => { const x = minerBaseHour[h]; return (x && x.bins) ? x.sum / x.bins : 1; };
 
-  const recentBins = {};
+  // ---- RAPTORS: mobbing chorus (>=2 sentinels, elevated) ----
+  const recentBins = {}, minerBins = {}, raptorTimes = [];
   for (const d of rows){
     const t = new Date(d.created_at).getTime(); if (t < scanFrom) continue;
-    const sp = briefEffSpecies(d); if (!(sp in BRIEF_SENTINELS)) continue;
-    const b = Math.floor(t / binMs) * binMs;
-    if (!recentBins[b]) recentBins[b] = { start: b, count: 0, species: {} };
-    recentBins[b].count++; recentBins[b].species[sp] = (recentBins[b].species[sp] || 0) + 1;
-  }
-  const raptorTimes = [];
-  for (const d of rows){
-    const t = new Date(d.created_at).getTime();
-    if (t < scanFrom - 20 * 60 * 1000) continue;
-    if (BRIEF_RAPTORS.has(briefEffSpecies(d))) raptorTimes.push({ t, name: briefEffSpecies(d) });
+    const sp = briefEffSpecies(d);
+    if (sp in BRIEF_SENTINELS){
+      const b = Math.floor(t / binMs) * binMs;
+      if (!recentBins[b]) recentBins[b] = { start: b, count: 0, species: {} };
+      recentBins[b].count++; recentBins[b].species[sp] = (recentBins[b].species[sp] || 0) + 1;
+    }
+    if (sp === "Noisy Miner"){ const b = Math.floor(t / binMs) * binMs; minerBins[b] = (minerBins[b] || 0) + 1; }
+    if (BRIEF_RAPTORS.has(sp)) raptorTimes.push({ t, name: sp });
   }
   const mobs = [];
   for (const b of Object.keys(recentBins)){
@@ -3086,52 +3118,131 @@ function buildBriefing(rows, classifications, nowMs){
       mobs.push({
         start: rb.start, distinct, count: rb.count,
         species: Object.keys(rb.species).sort((x, y) => rb.species[y] - rb.species[x]),
-        corroborated: corrob,
-        strength: corrob ? "high" : (distinct >= 3 ? "moderate" : "low"),
+        corroborated: corrob, strength: corrob ? "high" : (distinct >= 3 ? "moderate" : "low"),
       });
     }
   }
   mobs.sort((a, b) => b.start - a.start);
 
+  // ---- RAPTORS: standalone sustained noisy-miner alarm ----
+  const minerAlarms = [];
+  {
+    const sortedBins = Object.keys(minerBins).map(Number).sort((a, b) => a - b);
+    let run = null;
+    const finalize = (r) => { if (r && r.bins >= 3) minerAlarms.push({ start: r.start, end: r.end, bins: r.bins, peak: r.peak }); };
+    for (const b of sortedBins){
+      const h = new Date(b).getHours();
+      const elevated = minerBins[b] >= Math.max(3, minerBaselineFor(h) * 2.5);
+      if (elevated){
+        if (run && (b - run.lastBin) <= binMs * 2){ run.lastBin = b; run.bins++; run.peak = Math.max(run.peak, minerBins[b]); run.end = b + binMs; }
+        else { finalize(run); run = { start: b, end: b + binMs, lastBin: b, bins: 1, peak: minerBins[b] }; }
+      }
+    }
+    finalize(run);
+  }
+  minerAlarms.sort((a, b) => b.start - a.start);
+
+  // ---- PREDICTION: every species seen this week with enough history ----
   function topWindows(hoursObj){
     return Object.keys(hoursObj).map(h => ({ h: +h, n: hoursObj[h] }))
       .sort((a, b) => b.n - a.n).slice(0, 2).filter(x => x.n > 0).map(x => x.h);
   }
-  const predNames = new Set([...prioritySet]);
-  todayActive.slice(0, 4).forEach(e => predNames.add(e.name));
+  const predNames = new Set();
+  for (const name of Object.keys(weekAgg)) if (focusable(name, weekAgg[name].raw)) predNames.add(name);
+  for (const name of prioritySet) if (!briefHidden(name)) predNames.add(name);
   const predictions = [];
   for (const name of predNames){
-    if (introduced(name)) continue;
     const base = baseAgg[name]; if (!base || base.count < 4) continue;
     const windows = topWindows(base.hours); if (!windows.length) continue;
-    predictions.push({ name, windows, priority: prioritySet.has(name), total: base.count });
+    predictions.push({ name, windows, priority: prioritySet.has(name), weekCount: weekAgg[name] ? weekAgg[name].count : 0 });
   }
-  predictions.sort((a, b) => (b.priority - a.priority) || (b.total - a.total));
+  predictions.sort((a, b) => (b.priority - a.priority) || (b.weekCount - a.weekCount));
 
   let raptorOutlook;
   const recentRaptor = raptorList.some(r => r.today > 0) || mobs.some(m => m.corroborated);
   if (recentRaptor) raptorOutlook = "Raptor signals are elevated. Watch for sudden joint bursts from cockatoos, ravens and noisy miners, and check the sky.";
+  else if (minerAlarms.length) raptorOutlook = "Noisy miners have been alarming persistently, which can flag a raptor or predator nearby even when other species do not join in.";
   else if (mobs.length) raptorOutlook = "Some mobbing-type bursts recently but no raptor confirmed. Worth a glance up if the cockatoos and miners kick off together.";
   else raptorOutlook = "No strong raptor signals in the last day.";
 
   return {
     generatedAt: nowMs,
     counts: { today: todayRows.length, week: weekRows.length, base: rows.length },
-    today: { active: todayActive, peakHour, weather: wxTodayL },
-    week: { increasing, decreasing, wxWeek, wxPrior },
-    newRare, raptors: { direct: raptorList, mobs },
-    prediction: { species: predictions.slice(0, 6), weatherOutlook: wxTodayL.implication, raptorOutlook },
+    today: { hourly: todayHourly, hourSpan: [loH, hiH], peakHour, weather: wxTodayL },
+    week: { increasing, decreasing, wxWeek, wxPrior, daily: { names: weekNames, days, matrix: dayMatrix } },
+    newRare,
+    raptors: { direct: raptorList, mobs, minerAlarms },
+    prediction: { species: predictions.slice(0, 12), weatherOutlook: wxTodayL.implication, raptorOutlook },
     prioritySet: [...prioritySet],
   };
 }
 
+// Compact per-row-normalised heatmap. rowsData: [{name,priority,values:[]}].
+function BriefHeatmap({ rowsData, colLabels, tickEvery }){
+  if (!rowsData.length) return null;
+  return (
+    <div style={{ marginTop: 8 }}>
+      <div style={{ display: "flex", alignItems: "flex-end", marginBottom: 2 }}>
+        <div style={{ width: 92, flexShrink: 0 }} />
+        <div style={{ flex: 1, display: "flex" }}>
+          {colLabels.map((c, i) => (
+            <div key={i} style={{ flex: 1, fontSize: 9, color: "var(--text-3)", textAlign: "center", overflow: "hidden", whiteSpace: "nowrap" }}>
+              {(i % tickEvery === 0) ? c : ""}
+            </div>
+          ))}
+        </div>
+      </div>
+      {rowsData.map(r => {
+        const max = Math.max(1, ...r.values);
+        return (
+          <div key={r.name} style={{ display: "flex", alignItems: "center", marginBottom: 2 }}>
+            <div style={{ width: 92, flexShrink: 0, fontSize: 11, color: "var(--text-2)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", paddingRight: 6 }}>
+              {r.priority ? "⭐ " : ""}{r.name}
+            </div>
+            <div style={{ flex: 1, display: "flex", gap: 1 }}>
+              {r.values.map((v, i) => {
+                const t = v / max;
+                const bg = v === 0 ? "rgba(128,128,128,0.10)" : "rgba(55,138,221," + (0.18 + 0.82 * t).toFixed(2) + ")";
+                return <div key={i} title={colLabels[i] + ": " + v} style={{ flex: 1, height: 14, borderRadius: 2, background: bg }} />;
+              })}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// Derive a forward outlook from an Open-Meteo hourly forecast.
+function briefForecastOutlook(fc, nowMs){
+  if (!fc || !fc.time || !fc.wind_speed_10m) return null;
+  const now = new Date(nowMs);
+  const rows = fc.time.map((t, i) => ({ t: new Date(t).getTime(), hour: new Date(t).getHours(), day: new Date(t).getDate(),
+    wind: fc.wind_speed_10m[i], precip: (fc.precipitation ? fc.precipitation[i] : 0), temp: (fc.temperature_2m ? fc.temperature_2m[i] : null) }));
+  const future = rows.filter(x => x.t >= nowMs && x.t <= nowMs + 30 * 3600000);
+  if (!future.length) return null;
+  const morning = future.filter(x => x.hour >= 6 && x.hour <= 10).slice(0, 5);
+  if (!morning.length) return null;
+  let w = 0, p = 0, t = 0, n = 0;
+  for (const x of morning){ w += x.wind; p += x.precip; if (x.temp != null) t += x.temp; n++; }
+  const wind = w / n, temp = t / n;
+  const windWord = wind < 12 ? "calm" : wind < 20 ? "breezy" : wind < 30 ? "windy" : "very windy";
+  const rainy = p > 0.4;
+  const when = morning[0].day === now.getDate() ? "this morning" : "tomorrow morning";
+  const good = wind < 15 && !rainy;
+  return "Forecast " + when + ": " + windWord + " (" + Math.round(wind) + " km/h)" + (rainy ? ", showers likely" : "") +
+    (temp ? ", around " + Math.round(temp) + "°C" : "") + ". " + (good ? "A good dawn-chorus window." : "Activity may be muted; watch the lulls.");
+}
+
 let _briefCache = { ts: 0, rows: null };
+let _briefFc = { ts: 0, data: null };
 
 function BriefingView({ detections, classifications }){
   const [rows, setRows] = useState(_briefCache.rows);
   const [loading, setLoading] = useState(!_briefCache.rows);
   const [err, setErr] = useState(null);
   const [tick, setTick] = useState(0);
+  const [forecast, setForecast] = useState(_briefFc.data);
 
   const loadWindow = useCallback(async (force) => {
     const fresh = _briefCache.rows && (Date.now() - _briefCache.ts < 2 * 60 * 60 * 1000);
@@ -3158,6 +3269,22 @@ function BriefingView({ detections, classifications }){
 
   useEffect(() => { loadWindow(false); }, [loadWindow, tick]);
 
+  useEffect(() => {
+    if (_briefFc.data && (Date.now() - _briefFc.ts < 3 * 60 * 60 * 1000)){ setForecast(_briefFc.data); return; }
+    let cancelled = false;
+    (async () => {
+      try {
+        const url = "https://api.open-meteo.com/v1/forecast?latitude=" + BRIEF_DROMANA.lat + "&longitude=" + BRIEF_DROMANA.lon +
+          "&hourly=temperature_2m,precipitation,wind_speed_10m&forecast_days=2&timezone=auto";
+        const r = await fetch(url);
+        if (!r.ok) return;
+        const j = await r.json();
+        if (!cancelled && j && j.hourly){ _briefFc = { ts: Date.now(), data: j.hourly }; setForecast(j.hourly); }
+      } catch (e){ /* fall back to current-conditions proxy */ }
+    })();
+    return () => { cancelled = true; };
+  }, [tick]);
+
   const merged = useMemo(() => {
     const byId = {};
     for (const d of (rows || [])) byId[d.id] = d;
@@ -3173,12 +3300,6 @@ function BriefingView({ detections, classifications }){
 
   const card = { background: "var(--surface)", border: "1px solid var(--border)", borderRadius: "var(--r-md)", padding: "14px 16px", marginBottom: 12 };
   const secTitle = { fontSize: 11, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: 0.5, fontWeight: 700, marginBottom: 8 };
-  const trendChip = (t) => {
-    if (t === 999) return React.createElement("span", { style: { color: "var(--primary)", fontSize: 11, fontWeight: 600 } }, "new");
-    if (t >= 30) return React.createElement("span", { style: { color: "#16a34a", fontSize: 12 } }, "↑ " + t + "%");
-    if (t <= -30) return React.createElement("span", { style: { color: "#dc2626", fontSize: 12 } }, "↓ " + Math.abs(t) + "%");
-    return React.createElement("span", { style: { color: "var(--text-3)", fontSize: 12 } }, "→");
-  };
 
   if (loading && !brief){
     return (<div style={{ textAlign: "center", padding: "60px 20px", color: "var(--text-2)" }}>
@@ -3196,7 +3317,24 @@ function BriefingView({ detections, classifications }){
   if (brief.error) return (<div style={{ ...card, textAlign: "center", color: "var(--text-2)" }}>Briefing error: {brief.error}</div>);
 
   const b = brief;
-  const raptorAlerting = b.raptors.mobs.some(m => m.corroborated) || b.raptors.direct.some(r => r.today > 0);
+  const raptorAlerting = b.raptors.mobs.some(m => m.corroborated) || b.raptors.direct.some(r => r.today > 0) || b.raptors.minerAlarms.length > 0;
+  const noRaptor = b.raptors.mobs.length === 0 && b.raptors.direct.length === 0 && b.raptors.minerAlarms.length === 0;
+
+  const span = b.today.hourSpan; const todayCols = [];
+  for (let h = span[0]; h <= span[1]; h++) todayCols.push(briefShortHour(h));
+  const todayRowsData = b.today.hourly.map(e => {
+    const vals = []; for (let h = span[0]; h <= span[1]; h++) vals.push(e.byHour[h] || 0);
+    return { name: e.name, priority: e.priority, values: vals };
+  });
+  const todayTick = (todayCols.length > 10) ? 3 : 2;
+
+  const weekCols = b.week.daily.days.map(d => d.label);
+  const weekRowsData = b.week.daily.names.map(name => ({
+    name, priority: b.prioritySet.includes(name),
+    values: b.week.daily.days.map(d => (b.week.daily.matrix[name] && b.week.daily.matrix[name][d.key]) || 0),
+  }));
+
+  const fcOutlook = forecast ? briefForecastOutlook(forecast, Date.now()) : null;
 
   return (
     <div>
@@ -3204,64 +3342,53 @@ function BriefingView({ detections, classifications }){
         <div>
           <h2 style={{ fontSize: 18, fontWeight: 700, color: "var(--text)", margin: 0 }}>Daily briefing</h2>
           <div style={{ fontSize: 11, color: "var(--text-3)", marginTop: 2 }}>
-            {b.counts.today} today · {b.counts.week} this week · updated {briefFmtClock(_briefCache.ts || b.generatedAt)}
+            updated {briefFmtClock(_briefCache.ts || b.generatedAt)}
           </div>
         </div>
         <button onClick={() => setTick(t => t + 1)} title="Refresh" style={{ width: 36, height: 36, borderRadius: "50%", border: "1px solid var(--border)", background: "var(--surface)", color: "var(--text-2)", fontSize: 16, cursor: "pointer" }}>↻</button>
       </div>
 
-      {/* RAPTOR WATCH — priority, shown first when active */}
+      {/* RAPTOR WATCH */}
       <div style={{ ...card, borderColor: raptorAlerting ? "#dc2626" : "var(--border)", background: raptorAlerting ? "rgba(220,38,38,0.06)" : "var(--surface)" }}>
-        <div style={secTitle}>🦅 Raptor &amp; predator watch</div>
-        {b.raptors.mobs.length === 0 && b.raptors.direct.length === 0 && (
-          <p style={{ fontSize: 13, color: "var(--text-2)", margin: 0 }}>No raptor detections or mobbing bursts in the last day.</p>
-        )}
+        <div style={secTitle}>🦅 Raptor watch</div>
+        {noRaptor && <p style={{ fontSize: 13, color: "var(--text-2)", margin: 0 }}>No raptor detections, mobbing bursts, or sustained miner alarms in the last day.</p>}
         {b.raptors.mobs.map((m, i) => (
           <div key={"mob" + i} style={{ fontSize: 13, color: "var(--text)", marginBottom: 6 }}>
             <strong>{m.corroborated ? "Likely raptor" : "Possible predator"}</strong> around {briefFmtClock(m.start)} —{" "}
             {m.corroborated
               ? ("a mobbing burst (" + m.species.slice(0, 3).join(", ") + ") coincided with a " + m.corroborated + " detection. Strong signal.")
-              : ("a joint burst from " + m.species.slice(0, 3).join(", ") + " above the usual level. Species unknown; consider a look up.")}
+              : ("a joint burst from " + m.species.slice(0, 3).join(", ") + " above the usual level. Species unknown; worth a look up.")}
+          </div>
+        ))}
+        {b.raptors.minerAlarms.map((m, i) => (
+          <div key={"mn" + i} style={{ fontSize: 13, color: "var(--text)", marginBottom: 6 }}>
+            <strong>Sustained noisy miner alarm</strong> from {briefFmtClock(m.start)} to {briefFmtClock(m.end)} (~{m.bins * 10} min). Miners often alarm at raptors, though also at magpies and currawongs, so treat it as a heads-up.
           </div>
         ))}
         {b.raptors.direct.length > 0 && (
           <div style={{ fontSize: 13, color: "var(--text-2)", marginTop: 6 }}>
             Raptor calls flagged this week:{" "}
-            {b.raptors.direct.map((r, i) => (
-              <span key={r.name}>{i > 0 ? ", " : ""}{r.name} ({r.count}{r.strong > 0 ? ", confirmed" : ", unverified"})</span>
-            ))}. Treat unverified raptor calls with caution, they are easily misfired.
+            {b.raptors.direct.map((r, i) => (<span key={r.name}>{i > 0 ? ", " : ""}{r.name} ({r.count}{r.strong > 0 ? ", confirmed" : ", unverified"})</span>))}. Unverified raptor calls are easily misfired, so treat with caution.
           </div>
         )}
         <div style={{ fontSize: 12, color: "var(--text-3)", marginTop: 8, fontStyle: "italic" }}>{b.prediction.raptorOutlook}</div>
       </div>
 
-      {/* TODAY */}
+      {/* TODAY heatmap */}
       <div style={card}>
-        <div style={secTitle}>Today so far</div>
-        {b.today.active.length === 0 && <p style={{ fontSize: 13, color: "var(--text-2)", margin: 0 }}>Quiet so far today.</p>}
-        {b.today.active.map(e => (
-          <div key={e.name} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "3px 0", fontSize: 14 }}>
-            <span style={{ color: "var(--text)" }}>
-              {e.priority && <span title="priority">⭐ </span>}{e.name}
-              {e.strong === 0 && <span style={{ color: "var(--text-3)", fontSize: 11 }}> · unconfirmed</span>}
-            </span>
-            <span style={{ display: "flex", gap: 10, alignItems: "baseline" }}>
-              <span style={{ color: "var(--text-2)", fontVariantNumeric: "tabular-nums" }}>{e.count}</span>
-              {trendChip(e.trend)}
-            </span>
-          </div>
-        ))}
-        {b.today.peakHour != null && (
-          <div style={{ fontSize: 13, color: "var(--text-2)", marginTop: 8 }}>Busiest around <strong>{briefFmtHour(b.today.peakHour)}</strong>.</div>
-        )}
+        <div style={secTitle}>Today so far · who was about, and when</div>
+        {todayRowsData.length === 0
+          ? <p style={{ fontSize: 13, color: "var(--text-2)", margin: 0 }}>Quiet so far today.</p>
+          : <BriefHeatmap rowsData={todayRowsData} colLabels={todayCols} tickEvery={todayTick} />}
+        {b.today.peakHour != null && <div style={{ fontSize: 13, color: "var(--text-2)", marginTop: 10 }}>Busiest around <strong>{briefFmtHour(b.today.peakHour)}</strong>.</div>}
         <div style={{ fontSize: 13, color: "var(--text-2)", marginTop: 6 }}>Weather: {b.today.weather.label}. {b.today.weather.implication}</div>
       </div>
 
-      {/* WEEK TRENDS */}
+      {/* WEEK trends + heatmap */}
       <div style={card}>
         <div style={secTitle}>This week vs last</div>
         {b.week.increasing.length === 0 && b.week.decreasing.length === 0 && (
-          <p style={{ fontSize: 13, color: "var(--text-2)", margin: 0 }}>No major shifts in activity this week.</p>
+          <p style={{ fontSize: 13, color: "var(--text-2)", margin: "0 0 4px" }}>No major shifts in activity this week.</p>
         )}
         {b.week.increasing.length > 0 && (
           <div style={{ fontSize: 13, color: "var(--text)", marginBottom: 6 }}>
@@ -3275,6 +3402,7 @@ function BriefingView({ detections, classifications }){
             {b.week.decreasing.map((t, i) => (<span key={t.name}>{i > 0 ? ", " : ""}{t.priority ? "⭐" : ""}{t.name} ({t.pct}%)</span>))}
           </div>
         )}
+        <BriefHeatmap rowsData={weekRowsData} colLabels={weekCols} tickEvery={2} />
         {b.week.wxWeek && b.week.wxPrior && (
           <div style={{ fontSize: 12, color: "var(--text-3)", marginTop: 8 }}>
             Wind averaged {Math.round(b.week.wxWeek.wind)} km/h this week vs {Math.round(b.week.wxPrior.wind)} last;{" "}
@@ -3289,8 +3417,7 @@ function BriefingView({ detections, classifications }){
           <div style={secTitle}>New &amp; rare this week</div>
           {b.newRare.map(e => (
             <div key={e.name} style={{ fontSize: 13, color: "var(--text)", marginBottom: 6 }}>
-              {e.raptor ? "🦅 " : e.priority ? "⭐ " : "• "}
-              <strong>{e.name}</strong> ({e.status}, {e.count}×){" "}
+              {e.raptor ? "🦅 " : e.priority ? "⭐ " : "• "}<strong>{e.name}</strong> ({e.status}, {e.count}×){" "}
               {e.doubt
                 ? <span style={{ color: "#ca8a04" }}>— unconfirmed, treat with doubt{e.note ? "; " + e.note : ""}.</span>
                 : <span style={{ color: "var(--text-2)" }}>— {e.strong}× corroborated.</span>}
@@ -3302,7 +3429,7 @@ function BriefingView({ detections, classifications }){
       {/* PREDICTION */}
       <div style={card}>
         <div style={secTitle}>Likely windows ahead</div>
-        <p style={{ fontSize: 13, color: "var(--text-2)", marginTop: 0, marginBottom: 8 }}>{b.prediction.weatherOutlook}</p>
+        <p style={{ fontSize: 13, color: "var(--text-2)", marginTop: 0, marginBottom: 8 }}>{fcOutlook || b.prediction.weatherOutlook}</p>
         {b.prediction.species.length === 0 && <p style={{ fontSize: 13, color: "var(--text-2)", margin: 0 }}>Not enough history yet to predict per-species timing.</p>}
         {b.prediction.species.map(p => (
           <div key={p.name} style={{ fontSize: 13, color: "var(--text)", padding: "2px 0" }}>
@@ -3312,7 +3439,7 @@ function BriefingView({ detections, classifications }){
       </div>
 
       <div style={{ fontSize: 11, color: "var(--text-3)", lineHeight: 1.6, padding: "0 4px 20px" }}>
-        Built from your votes, the decider verdict, and BirdNET-BoundaryBirds agreement. Introduced species are excluded from focus and species BirdNET chronically mislabels (like swamphen) are suppressed. Single-model, unconfirmed sightings are flagged with doubt. Predictions come from your own hourly history adjusted for current weather, and are a guide, not a guarantee.
+        Built from your votes, the decider verdict, and BirdNET-BoundaryBirds agreement. Introduced and non-species labels (Polly, Cricket, Not-bird) are excluded, and species BirdNET chronically mislabels (like swamphen) are suppressed. Unconfirmed sightings are flagged with doubt. Heatmaps are shaded per row, so darker means busier for that species. Predictions use your own hourly history plus an Open-Meteo forecast for Dromana, and are a guide, not a guarantee.
       </div>
     </div>
   );
