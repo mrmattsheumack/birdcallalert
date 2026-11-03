@@ -192,8 +192,8 @@ function HistoryCorpusList({ species, label }) {
 // ─── App version ────────────────────────────────────────────────────
 // Bump on every deploy. Visible in the footer so we know which build is
 // running when investigating bug reports or screenshots.
-const APP_VERSION = "v6.56";
-const APP_VERSION_DATE = "2026-07-05";
+const APP_VERSION = "v6.57";
+const APP_VERSION_DATE = "2026-11-03";
 
 // ─── v5.8.0: Service Worker registration ──────────────────────────────
 // Registers /sw.js so registration.showNotification() works on Chrome
@@ -503,6 +503,38 @@ async function syncMutedToServer(classifications) {
   } catch (e) {
     console.warn("Failed to sync muted list to Pi:", e);
   }
+}
+
+// v6.57: Sync the priority species list to Supabase pi_config so the
+// server-side push notifier (ntfy trigger) alerts on exactly the species
+// starred in this app. Mirrors syncMutedToServer. Failure is non-blocking.
+async function syncPriorityToServer(classifications) {
+  const priority = Object.entries(classifications)
+    .filter(([_, state]) => state === "priority")
+    .map(([label]) => label);
+  try {
+    await fetch(
+      `${SUPA_URL}/rest/v1/pi_config?key=eq.priority_species`,
+      {
+        method: "PATCH",
+        headers: { ...SUPA_HEADERS, "Prefer": "return=minimal" },
+        body: JSON.stringify({ value: priority, updated_at: new Date().toISOString() }),
+      }
+    );
+  } catch (e) {
+    console.warn("Failed to sync priority list to server:", e);
+  }
+}
+
+// v6.57: true when this browser has never been customised (only the seed
+// priority list, nothing muted/suspect). Used to stop a brand-new browser
+// overwriting the server's priority list with the defaults on first open.
+function isPristineSeed(classifications) {
+  const entries = Object.entries(classifications || {});
+  if (entries.some(([_, state]) => state !== "priority")) return false;
+  const seedKeys = new Set(DEFAULT_PRIORITY_SPECIES.map(classificationKey));
+  const prKeys = entries.map(([label]) => classificationKey(label));
+  return prKeys.length === seedKeys.size && prKeys.every(k => seedKeys.has(k));
 }
 
 // ─── Auto-confirm (BN=BB agreement) ─────────────────────────────────
@@ -3634,6 +3666,8 @@ function App() {
       saveClassifications(next);
       // Fire-and-forget sync of muted list to Supabase pi_config
       syncMutedToServer(next);
+      // v6.57: and the priority list, for server-side push notifications
+      syncPriorityToServer(next);
       return next;
     });
   }, []);
@@ -3720,6 +3754,9 @@ function App() {
   // setClassifications which also syncs.
   useEffect(() => {
     syncMutedToServer(classifications);
+    // v6.57: push this device's priority list on open, unless the browser
+    // is an untouched default seed (would clobber the real list).
+    if (!isPristineSeed(classifications)) syncPriorityToServer(classifications);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
