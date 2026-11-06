@@ -96,6 +96,28 @@ const SUPA_HEADERS = {
   "Authorization": "Bearer " + SUPA_KEY,
 };
 
+// v6.58 egress: the 17 columns the app actually reads. candidate_sightings
+// also carries ~33 Eagle Tracker camera/AI columns that are always empty on
+// bird rows but were still sent with every row (select=* by default).
+const DETECTION_SELECT = "select=id,created_at,source,species_guess,confidence,metadata,dismissed,status,"
+  + "bb_species,bb_confidence,bb_model_version,verdict,verdict_source,species_truth,add_to_corpus,"
+  + "bb_also_correct,decider_species,decider_confidence,decider_reason,decider_evidence_n";
+
+// v6.58 egress: tiny localStorage cache with a max age, for heavy derived
+// results (accuracy stats, species list) that change slowly.
+function cacheGet(key, maxAgeMs) {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return null;
+    const o = JSON.parse(raw);
+    if (!o || typeof o.ts !== "number" || Date.now() - o.ts > maxAgeMs) return null;
+    return o.data;
+  } catch (e) { return null; }
+}
+function cacheSet(key, data) {
+  try { localStorage.setItem(key, JSON.stringify({ ts: Date.now(), data })); } catch (e) {}
+}
+
 // ─── Audio server config ────────────────────────────────────────────
 // The Pi runs a small HTTP server on port 8090 that streams clips and
 // accepts /promote requests for moving clips into the training corpus.
@@ -192,8 +214,8 @@ function HistoryCorpusList({ species, label }) {
 // ─── App version ────────────────────────────────────────────────────
 // Bump on every deploy. Visible in the footer so we know which build is
 // running when investigating bug reports or screenshots.
-const APP_VERSION = "v6.57";
-const APP_VERSION_DATE = "2026-11-03";
+const APP_VERSION = "v6.58";
+const APP_VERSION_DATE = "2026-11-06";
 
 // ─── v5.8.0: Service Worker registration ──────────────────────────────
 // Registers /sw.js so registration.showNotification() works on Chrome
@@ -636,14 +658,15 @@ async function refreshAccuracySnapshots() {
     const r = await fetch(
       `${SUPA_URL}/rest/v1/candidate_sightings`
         + `?or=(verdict_source.eq.user,metadata->>confirmed.eq.true)`
-        + `&select=species_guess,bb_species,decider_species,species_truth,metadata`
+        + `&select=species_guess,bb_species,decider_species,species_truth,ml:metadata->>manual_label,cf:metadata->confirmed`
         + `&limit=1000&offset=${off}`,
       { headers: SUPA_HEADERS }
     );
     if (!r.ok) break;
     const page = await r.json();
     for (const d of (page || [])) {
-      const m = d.metadata || {};
+      // v6.58: only the two metadata fields used, not the whole blob
+      const m = { manual_label: d.ml, confirmed: d.cf === true };
       const t = _norm(m.manual_label || (m.confirmed ? d.species_guess : d.species_truth));
       if (!t) continue;
       const bn = _norm(d.species_guess);
@@ -3505,6 +3528,9 @@ function App() {
   const [_allSeenSpecies, _setAllSeenSpecies] = useState([]);
   useEffect(() => {
     let alive = true;
+    // v6.58 egress: reuse the species list for 24h instead of refetching on every open
+    const _cachedSeen = cacheGet("bca_cache_all_seen_species", 24 * 60 * 60 * 1000);
+    if (_cachedSeen) { _setAllSeenSpecies(_cachedSeen); return () => { alive = false; }; }
     (async () => {
       try {
         const seen = new Map();  // canonical-key -> { label, common, scientific }
@@ -3515,7 +3541,7 @@ function App() {
         for (let pageIdx = 0; pageIdx < 8; pageIdx++) {
           const r = await fetch(
             `${SUPA_URL}/rest/v1/candidate_sightings`
-              + `?select=species_guess,species_truth,metadata`
+              + `?select=species_guess,species_truth,ml:metadata->>manual_label,cf:metadata->confirmed,sci:metadata->>scientific_name`
               + `&order=created_at.desc`,
             {
               headers: {
@@ -3529,10 +3555,11 @@ function App() {
           const rows = await r.json();
           if (!Array.isArray(rows) || rows.length === 0) break;
           for (const d of rows) {
-            const md = d.metadata || {};
+            // v6.58: rebuild just the metadata fields used from the slim columns
+            const md = { manual_label: d.ml, confirmed: d.cf === true, scientific_name: d.sci };
             if (_isHiddenSettingsLabel(d.species_guess)
                 || _isHiddenSettingsLabel(d.species_truth)
-                || _isHiddenSettingsLabel((d.metadata || {}).manual_label)) continue;
+                || _isHiddenSettingsLabel(md.manual_label)) continue;
             const truthRaw = d.species_truth
               || md.manual_label
               || (md.confirmed === true ? d.species_guess : null);
@@ -3551,7 +3578,9 @@ function App() {
           if (rows.length < page) break;
           from += page;
         }
-        if (alive) _setAllSeenSpecies([...seen.values()]);
+        const _seenList = [...seen.values()];
+        if (_seenList.length) cacheSet("bca_cache_all_seen_species", _seenList);
+        if (alive) _setAllSeenSpecies(_seenList);
       } catch (e) {
         // Non-fatal: Settings just falls back to window+classified species.
         console.warn('all-seen-species fetch failed:', e);
@@ -3563,6 +3592,10 @@ function App() {
   const [_modelAcc, _setModelAcc] = useState(null);
   useEffect(() => {
     let alive = true;
+    // v6.58 egress: reuse the accuracy panel for 6h instead of re-reading
+    // every voted row on every app open.
+    const _cachedAcc = cacheGet("bca_cache_model_acc", 6 * 60 * 60 * 1000);
+    if (_cachedAcc) { _setModelAcc(_cachedAcc); return () => { alive = false; }; }
     (async () => {
       try {
         const ck = (x) => String(canonicaliseSpeciesLabel(x) || "").toLowerCase().trim();
@@ -3580,7 +3613,7 @@ function App() {
           const r = await fetch(
             `${SUPA_URL}/rest/v1/candidate_sightings`
               + `?or=(verdict_source.eq.user,metadata->>confirmed.eq.true)`
-              + `&select=species_truth,decider_species,bb_species,species_guess,metadata,created_at`
+              + `&select=species_truth,decider_species,bb_species,species_guess,created_at,ml:metadata->>manual_label,cf:metadata->confirmed`
               + `&order=created_at.desc`
               + `&limit=${PAGE}&offset=${off}`,
             { headers: SUPA_HEADERS }
@@ -3588,7 +3621,8 @@ function App() {
           if (!r.ok) break;
           const page = await r.json();
           for (const d of (page || [])) {
-            const _meta = d.metadata || {};
+            // v6.58: only the two metadata fields used, not the whole blob
+            const _meta = { manual_label: d.ml, confirmed: d.cf === true };
             // Truth: a correction wins; else a confirmed row endorses BN's
             // guess (species_guess); else fall back to species_truth. We use
             // species_guess (not bb_species) for confirms so BB is scored
@@ -3613,7 +3647,9 @@ function App() {
           }
           if (!page || page.length < PAGE) break;
         }
-        if (alive) _setModelAcc({ all: A, rec: R, day: D });
+        const _acc = { all: A, rec: R, day: D };
+        if (A.total > 0) cacheSet("bca_cache_model_acc", _acc);
+        if (alive) _setModelAcc(_acc);
       } catch (_) {}
     })();
     return () => { alive = false; };
@@ -3861,6 +3897,7 @@ function App() {
         const r = await fetch(
           `${SUPA_URL}/rest/v1/candidate_sightings?source=eq.bird_detection`
             + `&created_at=gt.${encodeURIComponent(sinceTs)}`
+            + `&${DETECTION_SELECT}`
             + `&order=created_at.desc&limit=${PAGE}&offset=${_off}`,
           { headers: SUPA_HEADERS }
         );
@@ -3983,7 +4020,7 @@ function App() {
     }));
     try {
       const { gte, lt } = historyBucketRange(bucket);
-      let q = `${SUPA_URL}/rest/v1/candidate_sightings?source=eq.bird_detection`;
+      let q = `${SUPA_URL}/rest/v1/candidate_sightings?source=eq.bird_detection&${DETECTION_SELECT}`;
       if (gte) q += `&created_at=gte.${encodeURIComponent(gte)}`;
       if (lt)  q += `&created_at=lt.${encodeURIComponent(lt)}`;
       // v5.8.3: paginated fetch. Supabase caps each request at 1000 rows
